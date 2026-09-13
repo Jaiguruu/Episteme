@@ -1,0 +1,2 @@
+pub fn broken( -> bool {
+}

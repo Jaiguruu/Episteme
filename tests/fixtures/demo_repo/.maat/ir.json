@@ -1,0 +1,520 @@
+{
+  "chunks": [
+    {
+      "chunk_type": "imports",
+      "embedding_id": null,
+      "id": "chunk_6e73cfff61251ea9",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "symbol_id": "sym_03d6d5b2b9f266a3",
+      "text": "(no imports)",
+      "token_count": 3
+    },
+    {
+      "chunk_type": "module",
+      "embedding_id": null,
+      "id": "chunk_ee0f788e0832a222",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "symbol_id": "sym_03d6d5b2b9f266a3",
+      "text": "\"\"\"A service with deliberately broken syntax.\n\nSection 7 requires the fixture to contain one intentionally malformed file, so\nthat fault isolation (section 30) is exercised by the standard fixture rather\nthan only by a dedicated test. The class header and the import above it are\nvalid; the method bodies are not. That is the interesting case: the file must be\nreported degraded while the valid parts of the repository keep working.\n\"\"\"\n\nfrom models.payment import Payment\n\n\nclass BrokenService:\n    \"\"\"This class body does not parse cleanly.\"\"\"\n\n    def run(self, payment: Payment) -> bool\n        return payment.amount > 0\n\n    def also_broken(self:\n        return False",
+      "token_count": 168
+    },
+    {
+      "chunk_type": "imports",
+      "embedding_id": null,
+      "id": "chunk_87f4823990fd4859",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "symbol_id": "sym_094d2896d03998d0",
+      "text": "(no imports)",
+      "token_count": 3
+    },
+    {
+      "chunk_type": "module",
+      "embedding_id": null,
+      "id": "chunk_730e428de3d04992",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "symbol_id": "sym_094d2896d03998d0",
+      "text": "\"\"\"Payment domain service.\n\nThe centre of the fixture's expected dependency graph: both CheckoutService and\nRefundService reach PaymentService, and PaymentService reaches\nPaymentRepository.\n\"\"\"\n\nfrom models.payment import Payment\nfrom repositories.payment_repository import PaymentRepository\n\n\nclass PaymentService:\n    \"\"\"Validates and persists payments.\"\"\"\n\n    def __init__(self, repository: PaymentRepository) -> None:\n        self.repository = repository\n\n    def process(self, payment: Payment) -> bool:\n        \"\"\"Validate, then persist.\"\"\"\n        if not self.validate(payment):\n            return False\n        self.repository.save(payment)\n        return True\n\n    def validate(self, payment: Payment) -> bool:\n        \"\"\"A payment is valid when its amount is positive.\"\"\"\n        return payment.amount > 0",
+      "token_count": 204
+    },
+    {
+      "chunk_type": "imports",
+      "embedding_id": null,
+      "id": "chunk_9a05379dbf213f85",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "symbol_id": "sym_6039b79d75cabf5b",
+      "text": "(no imports)",
+      "token_count": 3
+    },
+    {
+      "chunk_type": "module",
+      "embedding_id": null,
+      "id": "chunk_7bed1b3d82b9a0ea",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "symbol_id": "sym_6039b79d75cabf5b",
+      "text": "\"\"\"Persistence for payments.\"\"\"\n\nfrom models.payment import Payment\n\n\nclass PaymentRepository:\n    \"\"\"Stores payments.\"\"\"\n\n    def save(self, payment: Payment) -> None:\n        \"\"\"Persist a payment.\"\"\"\n        self._write(payment)\n\n    def _write(self, payment: Payment) -> None:\n        \"\"\"Write to the backing store.\"\"\"\n        raise NotImplementedError",
+      "token_count": 88
+    },
+    {
+      "chunk_type": "imports",
+      "embedding_id": null,
+      "id": "chunk_0f7a6a22ade5872b",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "symbol_id": "sym_7ff206bc122fb996",
+      "text": "(no imports)",
+      "token_count": 3
+    },
+    {
+      "chunk_type": "module",
+      "embedding_id": null,
+      "id": "chunk_24432bfbbb5ba7f7",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "symbol_id": "sym_7ff206bc122fb996",
+      "text": "\"\"\"Payment domain model.\n\nFixture file for the MAAT offline pipeline (Problem_doc.md section 7).\n\"\"\"\n\n\nclass Payment:\n    \"\"\"A single payment.\"\"\"\n\n    def __init__(self, amount: float, currency: str = \"USD\") -> None:\n        self.amount = amount\n        self.currency = currency",
+      "token_count": 69
+    },
+    {
+      "chunk_type": "imports",
+      "embedding_id": null,
+      "id": "chunk_782ef82702f3c492",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "symbol_id": "sym_b44a5c810e00d25f",
+      "text": "(no imports)",
+      "token_count": 3
+    },
+    {
+      "chunk_type": "module",
+      "embedding_id": null,
+      "id": "chunk_35cc6ef8cc462b63",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "symbol_id": "sym_b44a5c810e00d25f",
+      "text": "\"\"\"Refund handling.\n\nSecond caller of PaymentService, which is what makes\n``find_callers(PaymentService)`` return two results rather than one.\n\"\"\"\n\nfrom models.payment import Payment\nfrom repositories.payment_repository import PaymentRepository\nfrom services.payment_service import PaymentService\n\n\nclass RefundService:\n    \"\"\"Issues refunds through the payment service.\"\"\"\n\n    def __init__(self) -> None:\n        self.payment_service = PaymentService(PaymentRepository())\n\n    def refund(self, payment: Payment) -> bool:\n        \"\"\"Process a refund as a negative payment.\"\"\"\n        return self.payment_service.process(payment)",
+      "token_count": 157
+    },
+    {
+      "chunk_type": "imports",
+      "embedding_id": null,
+      "id": "chunk_97eef7fe89d83871",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "symbol_id": "sym_fa8c383a7bead8c5",
+      "text": "(no imports)",
+      "token_count": 3
+    },
+    {
+      "chunk_type": "module",
+      "embedding_id": null,
+      "id": "chunk_f5959b07039d8c03",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "symbol_id": "sym_fa8c383a7bead8c5",
+      "text": "\"\"\"Checkout orchestration.\"\"\"\n\nfrom models.payment import Payment\nfrom repositories.payment_repository import PaymentRepository\nfrom services.payment_service import PaymentService\n\n\nclass CheckoutService:\n    \"\"\"Turns a cart into a payment.\"\"\"\n\n    def __init__(self) -> None:\n        self.payment_service = PaymentService(PaymentRepository())\n\n    def checkout(self, cart) -> bool:\n        \"\"\"Create a payment and hand it to the payment service.\"\"\"\n        payment = Payment(cart.total)\n        return self.payment_service.process(payment)",
+      "token_count": 135
+    },
+    {
+      "chunk_type": "imports",
+      "embedding_id": null,
+      "id": "chunk_931fc101120a7499",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "symbol_id": "sym_feaa8b282d322d38",
+      "text": "(no imports)",
+      "token_count": 3
+    },
+    {
+      "chunk_type": "module",
+      "embedding_id": null,
+      "id": "chunk_1b9d4430d980cd8e",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "symbol_id": "sym_feaa8b282d322d38",
+      "text": "\"\"\"HTTP entry point for checkout.\"\"\"\n\nfrom services.checkout_service import CheckoutService\n\n\nclass CheckoutController:\n    \"\"\"Handles the checkout request.\"\"\"\n\n    def handle(self, request) -> bool:\n        \"\"\"Delegate the request to the checkout service.\"\"\"\n        service = CheckoutService()\n        return service.checkout(request.cart)",
+      "token_count": 85
+    }
+  ],
+  "counts": {
+    "chunks": 14,
+    "degraded_files": 0,
+    "diagnostics": 7,
+    "evidence": 7,
+    "files": 7,
+    "relationships": 0,
+    "symbols": 7
+  },
+  "diagnostics": [
+    {
+      "code": "parse.grammar_unavailable",
+      "file_path": "api/checkout_controller.py",
+      "language": "python",
+      "message": "grammar 'python' could not be loaded: No module named 'tree_sitter_language_pack'",
+      "recovery_action": "none",
+      "severity": "WARNING",
+      "span": null
+    },
+    {
+      "code": "parse.grammar_unavailable",
+      "file_path": "broken/broken_service.py",
+      "language": "python",
+      "message": "grammar 'python' could not be loaded: No module named 'tree_sitter_language_pack'",
+      "recovery_action": "none",
+      "severity": "WARNING",
+      "span": null
+    },
+    {
+      "code": "parse.grammar_unavailable",
+      "file_path": "models/payment.py",
+      "language": "python",
+      "message": "grammar 'python' could not be loaded: No module named 'tree_sitter_language_pack'",
+      "recovery_action": "none",
+      "severity": "WARNING",
+      "span": null
+    },
+    {
+      "code": "parse.grammar_unavailable",
+      "file_path": "repositories/payment_repository.py",
+      "language": "python",
+      "message": "grammar 'python' could not be loaded: No module named 'tree_sitter_language_pack'",
+      "recovery_action": "none",
+      "severity": "WARNING",
+      "span": null
+    },
+    {
+      "code": "parse.grammar_unavailable",
+      "file_path": "services/checkout_service.py",
+      "language": "python",
+      "message": "grammar 'python' could not be loaded: No module named 'tree_sitter_language_pack'",
+      "recovery_action": "none",
+      "severity": "WARNING",
+      "span": null
+    },
+    {
+      "code": "parse.grammar_unavailable",
+      "file_path": "services/payment_service.py",
+      "language": "python",
+      "message": "grammar 'python' could not be loaded: No module named 'tree_sitter_language_pack'",
+      "recovery_action": "none",
+      "severity": "WARNING",
+      "span": null
+    },
+    {
+      "code": "parse.grammar_unavailable",
+      "file_path": "services/refund_service.py",
+      "language": "python",
+      "message": "grammar 'python' could not be loaded: No module named 'tree_sitter_language_pack'",
+      "recovery_action": "none",
+      "severity": "WARNING",
+      "span": null
+    }
+  ],
+  "evidence": [
+    {
+      "end_line": 20,
+      "entity_id": "sym_03d6d5b2b9f266a3",
+      "file_id": "file_d99ee9cbaa19c4c0",
+      "id": "ev_856c63ed5c822d18",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "retrieval_source": "offline.ast",
+      "score": 1.0,
+      "start_line": 1
+    },
+    {
+      "end_line": 27,
+      "entity_id": "sym_094d2896d03998d0",
+      "file_id": "file_c24c2e279f35d89d",
+      "id": "ev_4034542b67a21f3d",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "retrieval_source": "offline.ast",
+      "score": 1.0,
+      "start_line": 1
+    },
+    {
+      "end_line": 15,
+      "entity_id": "sym_6039b79d75cabf5b",
+      "file_id": "file_f9b839ff0c703c7e",
+      "id": "ev_3b67b3f22e4f1d70",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "retrieval_source": "offline.ast",
+      "score": 1.0,
+      "start_line": 1
+    },
+    {
+      "end_line": 12,
+      "entity_id": "sym_7ff206bc122fb996",
+      "file_id": "file_f491f65a5c19f29a",
+      "id": "ev_5a419df6210cdbbe",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "retrieval_source": "offline.ast",
+      "score": 1.0,
+      "start_line": 1
+    },
+    {
+      "end_line": 20,
+      "entity_id": "sym_b44a5c810e00d25f",
+      "file_id": "file_2c81db6fba00997c",
+      "id": "ev_a590b084aa32997b",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "retrieval_source": "offline.ast",
+      "score": 1.0,
+      "start_line": 1
+    },
+    {
+      "end_line": 17,
+      "entity_id": "sym_fa8c383a7bead8c5",
+      "file_id": "file_c87edb87af13c9ce",
+      "id": "ev_ce20cf8ae8a45ae6",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "retrieval_source": "offline.ast",
+      "score": 1.0,
+      "start_line": 1
+    },
+    {
+      "end_line": 12,
+      "entity_id": "sym_feaa8b282d322d38",
+      "file_id": "file_444ce691c276b739",
+      "id": "ev_15882c6cc6ce691c",
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "retrieval_source": "offline.ast",
+      "score": 1.0,
+      "start_line": 1
+    }
+  ],
+  "files": [
+    {
+      "content_hash": "sha256:984a21c77c513feb2171f1cef49d38b44139863c9481d8e1a13316ae2d9e66f5",
+      "file_kind": "SOURCE",
+      "id": "file_444ce691c276b739",
+      "is_binary": false,
+      "is_generated": false,
+      "language": "python",
+      "line_count": 12,
+      "max_depth": 0,
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "node_count": 0,
+      "parse_error": null,
+      "parse_status": "UNSUPPORTED",
+      "path": "api/checkout_controller.py",
+      "size": 342
+    },
+    {
+      "content_hash": "sha256:dc0e4b23511cd8de1c2845018bc66d59c595ad72465d1a6f9d61d2a69d8fb8b5",
+      "file_kind": "SOURCE",
+      "id": "file_d99ee9cbaa19c4c0",
+      "is_binary": false,
+      "is_generated": false,
+      "language": "python",
+      "line_count": 20,
+      "max_depth": 0,
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "node_count": 0,
+      "parse_error": null,
+      "parse_status": "UNSUPPORTED",
+      "path": "broken/broken_service.py",
+      "size": 673
+    },
+    {
+      "content_hash": "sha256:108262e5d4776c720193e1a7532a6ce4237c87348f3a84dd5f305cde8435b67a",
+      "file_kind": "SOURCE",
+      "id": "file_f491f65a5c19f29a",
+      "is_binary": false,
+      "is_generated": false,
+      "language": "python",
+      "line_count": 12,
+      "max_depth": 0,
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "node_count": 0,
+      "parse_error": null,
+      "parse_status": "UNSUPPORTED",
+      "path": "models/payment.py",
+      "size": 279
+    },
+    {
+      "content_hash": "sha256:3d5150b61afaf9a2fb134375e5ed54569c1fc466f1419712e443a17b3283de6e",
+      "file_kind": "SOURCE",
+      "id": "file_f9b839ff0c703c7e",
+      "is_binary": false,
+      "is_generated": false,
+      "language": "python",
+      "line_count": 15,
+      "max_depth": 0,
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "node_count": 0,
+      "parse_error": null,
+      "parse_status": "UNSUPPORTED",
+      "path": "repositories/payment_repository.py",
+      "size": 356
+    },
+    {
+      "content_hash": "sha256:3329e7a2a578cc6708d03e7e490a9b0cd007914a4a1adcf092c3115879956c4e",
+      "file_kind": "SOURCE",
+      "id": "file_c87edb87af13c9ce",
+      "is_binary": false,
+      "is_generated": false,
+      "language": "python",
+      "line_count": 17,
+      "max_depth": 0,
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "node_count": 0,
+      "parse_error": null,
+      "parse_status": "UNSUPPORTED",
+      "path": "services/checkout_service.py",
+      "size": 541
+    },
+    {
+      "content_hash": "sha256:dad2b5f42d2b0d688356109807d10a6deca9c910942676590b9ac77ce77a779f",
+      "file_kind": "SOURCE",
+      "id": "file_c24c2e279f35d89d",
+      "is_binary": false,
+      "is_generated": false,
+      "language": "python",
+      "line_count": 27,
+      "max_depth": 0,
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "node_count": 0,
+      "parse_error": null,
+      "parse_status": "UNSUPPORTED",
+      "path": "services/payment_service.py",
+      "size": 817
+    },
+    {
+      "content_hash": "sha256:117450092585df448f0e68d39e1fd0f8d23e11467577e5734438ed92131097f9",
+      "file_kind": "SOURCE",
+      "id": "file_2c81db6fba00997c",
+      "is_binary": false,
+      "is_generated": false,
+      "language": "python",
+      "line_count": 20,
+      "max_depth": 0,
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "node_count": 0,
+      "parse_error": null,
+      "parse_status": "UNSUPPORTED",
+      "path": "services/refund_service.py",
+      "size": 630
+    }
+  ],
+  "model_version": "mv_9abbbfdfc700ea1e",
+  "relationships": [],
+  "symbols": [
+    {
+      "content_hash": "sha256:9b045fc8002bc1c3cd5252c14a3fa599dfa8d1e45bb8dc5d12855a111ffd340d",
+      "documentation": null,
+      "file_id": "file_444ce691c276b739",
+      "id": "sym_feaa8b282d322d38",
+      "language": "python",
+      "location": {
+        "end_col": 0,
+        "end_line": 12,
+        "start_col": 0,
+        "start_line": 1
+      },
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "name": "checkout_controller",
+      "qualified_name": "api.checkout_controller",
+      "signature": null,
+      "symbol_type": "MODULE"
+    },
+    {
+      "content_hash": "sha256:96e7e9283d14e3ff459f4fa7eb5b1e07c7051f90f4f2d312bbba7ec8678327e9",
+      "documentation": null,
+      "file_id": "file_d99ee9cbaa19c4c0",
+      "id": "sym_03d6d5b2b9f266a3",
+      "language": "python",
+      "location": {
+        "end_col": 0,
+        "end_line": 20,
+        "start_col": 0,
+        "start_line": 1
+      },
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "name": "broken_service",
+      "qualified_name": "broken.broken_service",
+      "signature": null,
+      "symbol_type": "MODULE"
+    },
+    {
+      "content_hash": "sha256:0e9666790efbb7c0e13adee4084516c9b2b9cef645d6f66bb43236aeafc24e76",
+      "documentation": null,
+      "file_id": "file_f491f65a5c19f29a",
+      "id": "sym_7ff206bc122fb996",
+      "language": "python",
+      "location": {
+        "end_col": 0,
+        "end_line": 12,
+        "start_col": 0,
+        "start_line": 1
+      },
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "name": "payment",
+      "qualified_name": "models.payment",
+      "signature": null,
+      "symbol_type": "MODULE"
+    },
+    {
+      "content_hash": "sha256:8e97539326147cc079cb0ed8eca12f403b8e1180b3fbe55174339d2d999038aa",
+      "documentation": null,
+      "file_id": "file_f9b839ff0c703c7e",
+      "id": "sym_6039b79d75cabf5b",
+      "language": "python",
+      "location": {
+        "end_col": 0,
+        "end_line": 15,
+        "start_col": 0,
+        "start_line": 1
+      },
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "name": "payment_repository",
+      "qualified_name": "repositories.payment_repository",
+      "signature": null,
+      "symbol_type": "MODULE"
+    },
+    {
+      "content_hash": "sha256:c0f28feb27ccd6a4c6bc2dc9ee24de36024e0e2ef9365363ac1a7dde7206fadf",
+      "documentation": null,
+      "file_id": "file_c87edb87af13c9ce",
+      "id": "sym_fa8c383a7bead8c5",
+      "language": "python",
+      "location": {
+        "end_col": 0,
+        "end_line": 17,
+        "start_col": 0,
+        "start_line": 1
+      },
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "name": "checkout_service",
+      "qualified_name": "services.checkout_service",
+      "signature": null,
+      "symbol_type": "MODULE"
+    },
+    {
+      "content_hash": "sha256:81e61f8f07e1bf4d2a375e6bdbcd3e2f62230f145fb2a6535e268a9ceef89bb4",
+      "documentation": null,
+      "file_id": "file_c24c2e279f35d89d",
+      "id": "sym_094d2896d03998d0",
+      "language": "python",
+      "location": {
+        "end_col": 0,
+        "end_line": 27,
+        "start_col": 0,
+        "start_line": 1
+      },
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "name": "payment_service",
+      "qualified_name": "services.payment_service",
+      "signature": null,
+      "symbol_type": "MODULE"
+    },
+    {
+      "content_hash": "sha256:7132a778ddc9006e71424d7ed66ee9593c3307af2f60a9ca91e948a25c29a564",
+      "documentation": null,
+      "file_id": "file_2c81db6fba00997c",
+      "id": "sym_b44a5c810e00d25f",
+      "language": "python",
+      "location": {
+        "end_col": 0,
+        "end_line": 20,
+        "start_col": 0,
+        "start_line": 1
+      },
+      "model_version": "mv_9abbbfdfc700ea1e",
+      "name": "refund_service",
+      "qualified_name": "services.refund_service",
+      "signature": null,
+      "symbol_type": "MODULE"
+    }
+  ]
+}
