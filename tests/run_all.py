@@ -44,7 +44,7 @@ def main(argv: list[str]) -> int:
     result = runner.run(suite)
 
     print()
-    print(f"ran {result.testsRun} tests")
+    print(f"ran {result.testsRun} tests\n {result}")
     if result.failures:
         print(f"  failures: {len(result.failures)}")
     if result.errors:

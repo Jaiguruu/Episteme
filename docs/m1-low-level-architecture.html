@@ -1,0 +1,1917 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAAT M1 — Low-Level Architecture &amp; Per-File Activity Diagrams</title>
+<style>
+  :root{
+    --bg:#ffffff; --panel:#f8fafc; --panel-2:#f1f5f9;
+    --line:#e2e8f0; --line-2:#cbd5e1;
+    --ink:#0f172a; --ink-2:#334155; --ink-3:#64748b;
+    --core:#4f46e5; --core-bg:#eef2ff;
+    --t1:#0d9488;  --t1-bg:#f0fdfa;
+    --t2:#d97706;  --t2-bg:#fffbeb;
+    --t3:#7c3aed;  --t3-bg:#f5f3ff;
+    --orch:#e11d48; --orch-bg:#fff1f2;
+    --ok:#059669; --warn:#d97706; --err:#dc2626;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink); font-family:var(--sans);
+    font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:40px 28px 100px}
+
+  h1{font-size:27px; line-height:1.25; margin:0 0 6px; letter-spacing:-.02em}
+  .sub{color:var(--ink-3); font-size:14px; margin:0 0 30px}
+  h2{font-size:20px; margin:56px 0 4px; letter-spacing:-.01em; padding-top:20px; border-top:2px solid var(--line)}
+  h2:first-of-type{border-top:none}
+  h3{font-size:16px; margin:28px 0 8px}
+  h4{font-size:13px; margin:18px 0 6px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3)}
+  p{margin:10px 0}
+  code{font-family:var(--mono); font-size:.875em; background:var(--panel-2);
+       padding:1.5px 5px; border-radius:4px; color:#0f172a}
+  a{color:var(--core)}
+
+  .lede{font-size:15px; color:var(--ink-2); max-width:78ch}
+
+  /* file card */
+  .file{border:1px solid var(--line); border-radius:12px; margin:22px 0; overflow:hidden; background:#fff}
+  .file > .hd{
+    display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;
+    padding:13px 18px; border-bottom:1px solid var(--line); background:var(--panel)
+  }
+  .file .path{font-family:var(--mono); font-size:13.5px; font-weight:600; color:var(--ink)}
+  .file .role{font-size:12.5px; color:var(--ink-3)}
+  .file .loc{font-size:11.5px; color:var(--ink-3); margin-left:auto; font-family:var(--mono)}
+  .file .bd{padding:16px 18px 20px}
+  .tag{display:inline-block; font-size:10.5px; font-weight:700; letter-spacing:.05em;
+       text-transform:uppercase; padding:2px 8px; border-radius:99px; border:1px solid}
+  .tag.core{color:var(--core); border-color:#c7d2fe; background:var(--core-bg)}
+  .tag.t1{color:var(--t1); border-color:#99f6e4; background:var(--t1-bg)}
+  .tag.t2{color:var(--t2); border-color:#fde68a; background:var(--t2-bg)}
+  .tag.t3{color:var(--t3); border-color:#ddd6fe; background:var(--t3-bg)}
+  .tag.orch{color:var(--orch); border-color:#fecdd3; background:var(--orch-bg)}
+
+  .diagram{border:1px solid var(--line); border-radius:10px; background:#fff;
+           padding:14px 10px 6px; margin:14px 0; overflow-x:auto}
+  .diagram svg{display:block; width:100%; height:auto}
+  .cap{font-size:12px; color:var(--ink-3); padding:0 8px 8px; text-align:center}
+
+  table{width:100%; border-collapse:collapse; margin:12px 0; font-size:13.5px}
+  th,td{text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-3);
+     font-weight:700; background:var(--panel)}
+  td code{background:transparent; padding:0; color:#1e293b}
+  tr:last-child td{border-bottom:none}
+
+  ul{margin:8px 0; padding-left:22px}
+  li{margin:5px 0}
+  .tight li{margin:3px 0}
+
+  .note{border-left:3px solid var(--t2); background:var(--t2-bg); padding:10px 14px;
+        border-radius:0 8px 8px 0; margin:12px 0; font-size:13.5px}
+  .note.key{border-left-color:var(--core); background:var(--core-bg)}
+  .note.risk{border-left-color:var(--err); background:#fef2f2}
+  .note .lbl{font-weight:700; font-size:11.5px; text-transform:uppercase;
+             letter-spacing:.05em; display:block; margin-bottom:3px; color:var(--ink-2)}
+
+  .toc{border:1px solid var(--line); border-radius:12px; padding:16px 20px; background:var(--panel)}
+  .toc ol{margin:0; padding-left:20px; columns:2; column-gap:32px}
+  .toc li{margin:4px 0; font-size:13.5px}
+  .toc a{text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+
+  .mono{font-family:var(--mono); font-size:12.5px}
+  .kbd{font-family:var(--mono); font-size:12px; background:#fff; border:1px solid var(--line-2);
+       border-bottom-width:2px; border-radius:4px; padding:1px 5px}
+  footer{margin-top:70px; padding-top:20px; border-top:1px solid var(--line);
+         font-size:12.5px; color:var(--ink-3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>MAAT M1 — Low-Level Architecture</h1>
+<p class="sub">Every module in <span class="mono">maat/core/</span> and <span class="mono">maat/offline/</span>, with an activity diagram per file.
+All diagrams are derived from the source, not from the docs — line references are to the current tree.</p>
+
+<div class="toc">
+  <h4 style="margin-top:0">Contents</h4>
+  <ol>
+    <li><a href="#tiers">The three tiers &amp; call graph</a></li>
+    <li><a href="#data">The data that flows</a></li>
+    <li><a href="#ids">core/ids.py</a></li>
+    <li><a href="#locations">core/locations.py</a></li>
+    <li><a href="#enums">core/enums.py</a></li>
+    <li><a href="#contracts">core/contracts.py</a></li>
+    <li><a href="#serialization">core/serialization.py</a></li>
+    <li><a href="#languages">offline/languages.py</a></li>
+    <li><a href="#snapshot">offline/snapshot.py</a></li>
+    <li><a href="#changes">offline/changes.py</a></li>
+    <li><a href="#parser">offline/parser.py</a></li>
+    <li><a href="#base">extractors/base.py</a></li>
+    <li><a href="#qx">extractors/query_extractor.py</a></li>
+    <li><a href="#irb">offline/ir_builder.py</a></li>
+    <li><a href="#pipeline">offline/pipeline.py</a></li>
+    <li><a href="#scm">queries/*.scm</a></li>
+    <li><a href="#trace">End-to-end trace</a></li>
+  </ol>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="tiers">1. The three tiers &amp; the call graph</h2>
+
+<p class="lede">One rule governs the whole layout: <strong>no language-specific shape may cross from Tier&nbsp;2 to Tier&nbsp;3.</strong>
+Tier&nbsp;2 knows about grammars and throws its tree away. Tier&nbsp;3 receives a fixed vocabulary of facts and never learns which grammar produced them.</p>
+
+<div class="diagram">
+<svg viewBox="0 0 960 430" role="img" aria-label="Three tier architecture with call graph">
+  <defs>
+    <marker id="a-ink" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="#475569"/>
+    </marker>
+    <marker id="a-t3" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="#7c3aed"/>
+    </marker>
+  </defs>
+
+  <!-- tier 1 -->
+  <rect x="24" y="20" width="912" height="96" rx="12" fill="#f0fdfa" stroke="#99f6e4" stroke-width="1.5"/>
+  <text x="44" y="44" font-family="ui-monospace,monospace" font-size="13" font-weight="700" fill="#0f766e">TIER 1 — ACQUISITION</text>
+  <text x="44" y="62" font-size="11.5" fill="#0f766e" opacity=".8">filesystem in, deterministic facts out</text>
+  <rect x="52" y="72" width="180" height="30" rx="6" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="142" y="92" font-family="ui-monospace,monospace" font-size="12" fill="#0f172a" text-anchor="middle">languages.py</text>
+  <rect x="252" y="72" width="180" height="30" rx="6" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="342" y="92" font-family="ui-monospace,monospace" font-size="12" fill="#0f172a" text-anchor="middle">snapshot.py</text>
+  <rect x="452" y="72" width="180" height="30" rx="6" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="542" y="92" font-family="ui-monospace,monospace" font-size="12" fill="#0f172a" text-anchor="middle">changes.py</text>
+  <rect x="672" y="72" width="240" height="30" rx="6" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="792" y="92" font-family="ui-monospace,monospace" font-size="12" fill="#0f172a" text-anchor="middle">core/serialization.py (atomic IO)</text>
+
+  <!-- tier 2 -->
+  <rect x="24" y="136" width="912" height="112" rx="12" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+  <text x="44" y="160" font-family="ui-monospace,monospace" font-size="13" font-weight="700" fill="#b45309">TIER 2 — SYNTAX  (disposable)</text>
+  <text x="44" y="178" font-size="11.5" fill="#b45309" opacity=".8">grammar-shaped, thrown away after extraction</text>
+  <rect x="52" y="188" width="200" height="30" rx="6" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+  <text x="152" y="208" font-family="ui-monospace,monospace" font-size="12" fill="#0f172a" text-anchor="middle">parser.py → ParseOutcome</text>
+  <rect x="272" y="188" width="230" height="30" rx="6" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+  <text x="387" y="208" font-family="ui-monospace,monospace" font-size="12" fill="#0f172a" text-anchor="middle">queries/*.scm → ts.Query</text>
+  <rect x="522" y="188" width="230" height="30" rx="6" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+  <text x="637" y="208" font-family="ui-monospace,monospace" font-size="12" fill="#0f172a" text-anchor="middle">QueryCursor.matches(tree)</text>
+  <text x="480" y="238" font-size="11" fill="#b45309" text-anchor="middle" font-style="italic">tree-sitter Node objects live and die inside this band</text>
+
+  <!-- tier 3 -->
+  <rect x="24" y="268" width="912" height="140" rx="12" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="44" y="292" font-family="ui-monospace,monospace" font-size="13" font-weight="700" fill="#6d28d9">TIER 3 — SEMANTICS  (canonical)</text>
+  <text x="44" y="310" font-size="11.5" fill="#6d28d9" opacity=".8">language-neutral facts → identified, validated entities</text>
+  <rect x="52" y="320" width="240" height="30" rx="6" fill="#fff" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="172" y="340" font-family="ui-monospace,monospace" font-size="12" fill="#0f172a" text-anchor="middle">extractors/base.py (facts)</text>
+  <rect x="312" y="320" width="240" height="30" rx="6" fill="#fff" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="432" y="340" font-family="ui-monospace,monospace" font-size="12" fill="#0f172a" text-anchor="middle">extractors/query_extractor.py</text>
+  <rect x="572" y="320" width="240" height="30" rx="6" fill="#fff" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="692" y="340" font-family="ui-monospace,monospace" font-size="12" fill="#0f172a" text-anchor="middle">ir_builder.py → FileIR</text>
+  <rect x="52" y="364" width="760" height="30" rx="6" fill="#fff" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="432" y="384" font-family="ui-monospace,monospace" font-size="12" fill="#0f172a" text-anchor="middle">core/contracts.py — Symbol · Relationship · Evidence · SemanticChunk · SemanticIR</text>
+
+  <!-- the boundary rule -->
+  <path d="M480,136 L480,120" stroke="#7c3aed" stroke-width="2" marker-end="url(#a-t3)"/>
+  <rect x="352" y="122" width="256" height="0" fill="none"/>
+  <text x="492" y="133" font-size="11" font-weight="700" fill="#7c3aed">THE BOUNDARY</text>
+</svg>
+<p class="cap">The rule that shapes every module: grammar knowledge stops at <code>ParseOutcome</code>.</p>
+</div>
+
+<h3>Who calls whom</h3>
+<div class="diagram">
+<svg viewBox="0 0 960 400" role="img" aria-label="Module call graph">
+  <defs>
+    <marker id="g1" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="#475569"/>
+    </marker>
+  </defs>
+  <!-- pipeline hub -->
+  <rect x="380" y="16" width="200" height="42" rx="8" fill="#fff1f2" stroke="#fecdd3" stroke-width="2"/>
+  <text x="480" y="35" font-family="ui-monospace,monospace" font-size="12.5" font-weight="700" fill="#be123c" text-anchor="middle">pipeline.py</text>
+  <text x="480" y="50" font-size="10.5" fill="#be123c" text-anchor="middle">OfflinePipeline.index()</text>
+
+  <!-- row 2 -->
+  <rect x="30" y="118" width="168" height="38" rx="7" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="114" y="135" font-family="ui-monospace,monospace" font-size="11.5" fill="#0f172a" text-anchor="middle">snapshot.py</text>
+  <text x="114" y="149" font-size="10" fill="#64748b" text-anchor="middle">scan_repository</text>
+
+  <rect x="222" y="118" width="168" height="38" rx="7" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="306" y="135" font-family="ui-monospace,monospace" font-size="11.5" fill="#0f172a" text-anchor="middle">changes.py</text>
+  <text x="306" y="149" font-size="10" fill="#64748b" text-anchor="middle">diff_snapshot</text>
+
+  <rect x="414" y="118" width="168" height="38" rx="7" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+  <text x="498" y="135" font-family="ui-monospace,monospace" font-size="11.5" fill="#0f172a" text-anchor="middle">parser.py</text>
+  <text x="498" y="149" font-size="10" fill="#64748b" text-anchor="middle">TreeSitterParser.parse</text>
+
+  <rect x="606" y="118" width="168" height="38" rx="7" fill="#fff" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="690" y="135" font-family="ui-monospace,monospace" font-size="11.5" fill="#0f172a" text-anchor="middle">query_extractor.py</text>
+  <text x="690" y="149" font-size="10" fill="#64748b" text-anchor="middle">QueryExtractor.extract</text>
+
+  <rect x="798" y="118" width="132" height="38" rx="7" fill="#fff" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="864" y="135" font-family="ui-monospace,monospace" font-size="11.5" fill="#0f172a" text-anchor="middle">ir_builder.py</text>
+  <text x="864" y="149" font-size="10" fill="#64748b" text-anchor="middle">build_file_ir</text>
+
+  <!-- arrows from pipeline -->
+  <path d="M420,58 C300,86 160,96 114,114" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#g1)"/>
+  <path d="M440,58 C400,86 330,96 306,114" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#g1)"/>
+  <path d="M480,58 L498,114" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#g1)"/>
+  <path d="M520,58 C580,86 650,96 690,114" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#g1)"/>
+  <path d="M545,58 C660,86 800,96 864,114" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#g1)"/>
+
+  <!-- chain arrows -->
+  <path d="M198,137 L218,137" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#g1)"/>
+  <path d="M390,137 L410,137" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#g1)"/>
+  <path d="M582,137 L602,137" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#g1)"/>
+  <path d="M774,137 L794,137" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#g1)"/>
+
+  <!-- core row -->
+  <rect x="30" y="212" width="900" height="52" rx="8" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1.5"/>
+  <text x="52" y="234" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="#4338ca">core/</text>
+  <text x="52" y="251" font-size="11" fill="#4338ca">imported by everything above — ids · locations · enums · contracts · serialization</text>
+  <text x="720" y="234" font-size="11" fill="#4338ca">no imports from offline/</text>
+  <text x="720" y="251" font-size="11" fill="#4338ca">(dependency points one way)</text>
+
+  <path d="M480,168 L480,208" stroke="#4f46e5" stroke-width="2" fill="none" marker-end="url(#g1)"/>
+
+  <!-- languages -->
+  <rect x="330" y="300" width="300" height="40" rx="8" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="480" y="318" font-family="ui-monospace,monospace" font-size="11.5" fill="#0f172a" text-anchor="middle">languages.py</text>
+  <text x="480" y="332" font-size="10" fill="#64748b" text-anchor="middle">path → grammar key · query existence</text>
+  <path d="M114,156 L114,290 L326,312" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#g1)"/>
+  <path d="M690,156 L690,290 L634,312" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#g1)"/>
+  <text x="480" y="368" font-size="11" fill="#64748b" text-anchor="middle">snapshot asks “what language is this?” · extractor asks “is there a query for it?”</text>
+</svg>
+<p class="cap">Dependency direction is strictly one-way: <code>offline/</code> → <code>core/</code>.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="data">2. The data that flows</h2>
+
+<p class="lede">Five shapes carry everything. Each one is narrower than the last — bytes become a tree, a tree becomes facts, facts become identified entities.</p>
+
+<div class="diagram">
+<svg viewBox="0 0 960 330" role="img" aria-label="Data shapes through the pipeline">
+  <defs>
+    <marker id="d1" markerWidth="10" markerHeight="10" refX="8" refY="3.4" orient="auto">
+      <path d="M0,0 L8,3.4 L0,6.8 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <!-- stage labels -->
+  <text x="96"  y="26" font-size="10.5" font-weight="700" fill="#94a3b8" text-anchor="middle" letter-spacing=".06em">SNAPSHOT</text>
+  <text x="288" y="26" font-size="10.5" font-weight="700" fill="#94a3b8" text-anchor="middle" letter-spacing=".06em">PARSE</text>
+  <text x="480" y="26" font-size="10.5" font-weight="700" fill="#94a3b8" text-anchor="middle" letter-spacing=".06em">EXTRACT</text>
+  <text x="672" y="26" font-size="10.5" font-weight="700" fill="#94a3b8" text-anchor="middle" letter-spacing=".06em">BUILD</text>
+  <text x="864" y="26" font-size="10.5" font-weight="700" fill="#94a3b8" text-anchor="middle" letter-spacing=".06em">ASSEMBLE</text>
+
+  <!-- boxes -->
+  <rect x="20" y="42" width="152" height="86" rx="8" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="96" y="64" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#0f172a" text-anchor="middle">bytes</text>
+  <text x="96" y="82" font-size="10" fill="#475569" text-anchor="middle">raw file content</text>
+  <text x="96" y="97" font-size="10" fill="#475569" text-anchor="middle">SHA-256 over these</text>
+  <text x="96" y="115" font-size="10" fill="#0d9488" text-anchor="middle">encoding-independent</text>
+
+  <rect x="212" y="42" width="152" height="86" rx="8" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+  <text x="288" y="64" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#0f172a" text-anchor="middle">ParseOutcome</text>
+  <text x="288" y="82" font-size="10" fill="#475569" text-anchor="middle">status · tree · source</text>
+  <text x="288" y="97" font-size="10" fill="#475569" text-anchor="middle">node_count · max_depth</text>
+  <text x="288" y="115" font-size="10" fill="#b45309" text-anchor="middle">tree is Tier 2 only</text>
+
+  <rect x="404" y="42" width="152" height="86" rx="8" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="480" y="64" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#0f172a" text-anchor="middle">ExtractionFacts</text>
+  <text x="480" y="82" font-size="10" fill="#475569" text-anchor="middle">symbols · imports</text>
+  <text x="480" y="97" font-size="10" fill="#475569" text-anchor="middle">calls · inherits</text>
+  <text x="480" y="115" font-size="10" fill="#475569" text-anchor="middle">bindings</text>
+
+  <rect x="596" y="42" width="152" height="86" rx="8" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="672" y="64" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#0f172a" text-anchor="middle">FileIR</text>
+  <text x="672" y="82" font-size="10" fill="#475569" text-anchor="middle">Symbol (has id)</text>
+  <text x="672" y="97" font-size="10" fill="#475569" text-anchor="middle">Relationship</text>
+  <text x="672" y="115" font-size="10" fill="#475569" text-anchor="middle">Evidence · Chunk</text>
+
+  <rect x="788" y="42" width="152" height="86" rx="8" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1.5"/>
+  <text x="864" y="64" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#0f172a" text-anchor="middle">SemanticIR</text>
+  <text x="864" y="82" font-size="10" fill="#475569" text-anchor="middle">all files merged</text>
+  <text x="864" y="97" font-size="10" fill="#475569" text-anchor="middle">sorted · validated</text>
+  <text x="864" y="115" font-size="10" fill="#4338ca" text-anchor="middle">source of truth</text>
+
+  <!-- arrows -->
+  <path d="M172,85 L208,85" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#d1)"/>
+  <path d="M364,85 L400,85" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#d1)"/>
+  <path d="M556,85 L592,85" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#d1)"/>
+  <path d="M748,85 L784,85" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#d1)"/>
+
+  <!-- narrowing band -->
+  <text x="480" y="168" font-size="11.5" fill="#64748b" text-anchor="middle" font-style="italic">each step discards information — nothing downstream can recover what an earlier step dropped</text>
+
+  <!-- identity appears -->
+  <rect x="596" y="188" width="344" height="52" rx="8" fill="#fff1f2" stroke="#fecdd3" stroke-width="1.5"/>
+  <text x="768" y="208" font-size="11.5" font-weight="700" fill="#be123c" text-anchor="middle">identity is created here, and only here</text>
+  <text x="768" y="226" font-size="10.5" fill="#be123c" text-anchor="middle">facts carry raw names and spans; entities carry IDs and a version</text>
+
+  <rect x="20" y="188" width="540" height="52" rx="8" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text x="40" y="208" font-size="11.5" font-weight="700" fill="#334155">three things never appear before ir_builder.py</text>
+  <text x="40" y="226" font-size="10.5" fill="#64748b">no entity ID · no model_version · no resolved target</text>
+
+  <!-- unresolved note -->
+  <rect x="20" y="258" width="920" height="54" rx="8" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+  <text x="40" y="279" font-size="11.5" font-weight="700" fill="#b45309">After M1 the SemanticIR is deliberately half-empty of meaning</text>
+  <text x="40" y="297" font-size="11" fill="#92400e">only CONTAINS is RESOLVED_EXACT — every IMPORTS / INHERITS / CALLS carries an unresolved: placeholder target and confidence 0.0</text>
+</svg>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="ids">3. <span class="mono">core/ids.py</span></h2>
+
+<div class="file">
+  <div class="hd">
+    <span class="tag core">core</span>
+    <span class="path">maat/core/ids.py</span>
+    <span class="role">deterministic entity identity</span>
+    <span class="loc">150 lines · 8 functions · no state</span>
+  </div>
+  <div class="bd">
+    <p>Pure functions only. Every ID in the system is produced here, and every one is a truncated SHA-1 over a separator-joined tuple. There is no counter, no UUID, no <code>id()</code>.</p>
+
+    <div class="diagram">
+    <svg viewBox="0 0 960 400" role="img" aria-label="ID construction pipeline">
+      <defs>
+        <marker id="i1" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+          <path d="M0,0 L7,3.2 L0,6.4 z" fill="#4f46e5"/>
+        </marker>
+      </defs>
+
+      <!-- _digest internals -->
+      <rect x="24" y="20" width="912" height="150" rx="10" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="44" y="44" font-family="ui-monospace,monospace" font-size="12.5" font-weight="700" fill="#4338ca">_digest(*parts)</text>
+
+      <rect x="52" y="58" width="150" height="34" rx="6" fill="#fff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="127" y="79" font-size="11" fill="#0f172a" text-anchor="middle">parts (any types)</text>
+
+      <rect x="232" y="58" width="180" height="34" rx="6" fill="#fff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="322" y="73" font-size="10.5" fill="#0f172a" text-anchor="middle">None → "" then str(p)</text>
+      <text x="322" y="86" font-size="10" fill="#64748b" text-anchor="middle">join with \x1f</text>
+
+      <rect x="442" y="58" width="200" height="34" rx="6" fill="#fff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="542" y="79" font-size="11" fill="#0f172a" text-anchor="middle">sha1(utf-8).hexdigest()</text>
+
+      <rect x="672" y="58" width="230" height="34" rx="6" fill="#fff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="787" y="79" font-size="11" fill="#0f172a" text-anchor="middle">[:16] → 64 bits</text>
+
+      <path d="M202,75 L228,75" stroke="#4f46e5" stroke-width="1.5" marker-end="url(#i1)"/>
+      <path d="M412,75 L438,75" stroke="#4f46e5" stroke-width="1.5" marker-end="url(#i1)"/>
+      <path d="M642,75 L668,75" stroke="#4f46e5" stroke-width="1.5" marker-end="url(#i1)"/>
+
+      <rect x="52" y="108" width="850" height="46" rx="6" fill="#fff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="72" y="127" font-size="11" fill="#0f172a"><tspan font-weight="700">Why \x1f:</tspan> it is illegal in a POSIX path, a qualified name and an enum value — so ("a", "b|c") and ("a|b", "c") cannot collide.</text>
+      <text x="72" y="144" font-size="11" fill="#0f172a"><tspan font-weight="700">Why 16 chars:</tspan> the birthday bound for a 1M-symbol repo is ~2.7e-8, far below the rate a resolver produces a wrong-but-stable answer.</text>
+
+      <!-- the six ID functions -->
+      <text x="24" y="204" font-size="11.5" font-weight="700" fill="#334155">THE SIX ID FAMILIES — what goes into each preimage</text>
+
+      <rect x="24" y="216" width="292" height="76" rx="7" fill="#fff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="40" y="235" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#4338ca">file_id(path)</text>
+      <text x="40" y="253" font-size="10.5" fill="#334155">path ONLY — never content</text>
+      <text x="40" y="270" font-size="10" fill="#64748b">hashing content would make every edit</text>
+      <text x="40" y="283" font-size="10" fill="#64748b">change the file's identity</text>
+
+      <rect x="332" y="216" width="292" height="76" rx="7" fill="#fff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="348" y="235" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#4338ca">symbol_id(path, type, qname)</text>
+      <text x="348" y="253" font-size="10.5" fill="#334155">path + type + qualified name</text>
+      <text x="348" y="270" font-size="10" fill="#64748b">path → two same-named classes stay</text>
+      <text x="348" y="283" font-size="10" fill="#64748b">distinct (§13 AC2); type → no class/fn clash</text>
+
+      <rect x="640" y="216" width="296" height="76" rx="7" fill="#fff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="656" y="235" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#4338ca">relationship_id(src, type, target_key, line, col)</text>
+      <text x="656" y="253" font-size="10.5" fill="#334155">five parts — the position matters</text>
+      <text x="656" y="270" font-size="10" fill="#64748b">line+col → f(); g() on one line are two</text>
+      <text x="656" y="283" font-size="10" fill="#64748b">observations, not one duplicate</text>
+
+      <rect x="24" y="304" width="292" height="76" rx="7" fill="#fff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="40" y="323" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#4338ca">evidence_id(entity, file, start, end, src)</text>
+      <text x="40" y="341" font-size="10.5" fill="#334155">one evidence row per span</text>
+
+      <rect x="332" y="304" width="292" height="76" rx="7" fill="#fff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="348" y="323" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#4338ca">chunk_id(symbol_id, chunk_type)</text>
+      <text x="348" y="341" font-size="10.5" fill="#334155">one chunk per (symbol, kind)</text>
+
+      <rect x="640" y="304" width="296" height="76" rx="7" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="656" y="323" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#b91c1c">model_version_id(file_hashes_digest)</text>
+      <text x="656" y="341" font-size="10.5" fill="#7f1d1d">ONE input. parent is deliberately excluded</text>
+      <text x="656" y="358" font-size="10" fill="#991b1b">→ reindexing unchanged repo mints no new version</text>
+      <text x="656" y="371" font-size="10" fill="#991b1b">→ D27 must add a pipeline fingerprint here</text>
+    </svg>
+    <p class="cap">Every ID is <code>prefix + sha1(parts joined by \x1f)[:16]</code>. The preimage is the whole design.</p>
+    </div>
+
+    <div class="note key">
+      <span class="lbl">The decision that makes incremental indexing possible</span>
+      <code>model_version</code> is <strong>not</strong> part of any ID. It is an attribute of the entity, not part of its identity.
+      If version were in the preimage, an <em>unchanged</em> symbol would get a fresh ID on every reindex and the carry-forward in
+      <code>pipeline._reuse()</code> would be impossible — which would make §9 AC2 (100 files → 0 reparsed) unachievable.
+    </div>
+
+    <div class="note risk">
+      <span class="lbl">M2 changes this file's signature</span>
+      <code>model_version_id(file_hashes_digest)</code> is a pure function of file content. M2 resolution changes the model
+      <em>without changing any file</em>, so one content hash would map to two different models sharing one version ID.
+      D27 adds a second parameter: <code>pipeline_fingerprint</code> (the <code>.scm</code> content hashes + a
+      <code>RESOLUTION_POLICY_VERSION</code> constant). This also fixes a latent M1 bug: editing a query file changes the model
+      but not the version today.
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="locations">4. <span class="mono">core/locations.py</span></h2>
+
+<div class="file">
+  <div class="hd">
+    <span class="tag core">core</span>
+    <span class="path">maat/core/locations.py</span>
+    <span class="role">source spans — the coordinate contract</span>
+    <span class="loc">104 lines · 1 dataclass · 9 methods</span>
+  </div>
+  <div class="bd">
+    <p>A frozen, ordered dataclass holding four integers. Trivial in content, load-bearing in convention — this is where the classic off-by-one bug is prevented once, centrally.</p>
+
+    <div class="diagram">
+    <svg viewBox="0 0 960 340" role="img" aria-label="SourceSpan conventions and conversion">
+      <defs>
+        <marker id="l1" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+          <path d="M0,0 L7,3.2 L0,6.4 z" fill="#4f46e5"/>
+        </marker>
+      </defs>
+
+      <!-- the three conventions -->
+      <rect x="24" y="20" width="912" height="80" rx="10" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="44" y="44" font-size="12" font-weight="700" fill="#4338ca">THE THREE CONVENTIONS — fixed once, so no module has to remember them</text>
+      <rect x="52" y="56" width="270" height="32" rx="6" fill="#fff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="187" y="76" font-size="11" fill="#0f172a" text-anchor="middle"><tspan font-weight="700">line: 1-based</tspan> — matches editors</text>
+      <rect x="342" y="56" width="270" height="32" rx="6" fill="#fff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="477" y="76" font-size="11" fill="#0f172a" text-anchor="middle"><tspan font-weight="700">column: 0-based</tspan> — matches tree-sitter, LSP</text>
+      <rect x="632" y="56" width="284" height="32" rx="6" fill="#fff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="774" y="76" font-size="11" fill="#0f172a" text-anchor="middle"><tspan font-weight="700">end: exclusive</tspan> — end−start = length</text>
+
+      <!-- from_tree_sitter -->
+      <rect x="24" y="120" width="440" height="200" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+      <text x="44" y="144" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="#4338ca">from_tree_sitter(node)</text>
+
+      <rect x="52" y="160" width="176" height="46" rx="6" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+      <text x="140" y="179" font-size="10.5" fill="#0f172a" text-anchor="middle">node.start_point</text>
+      <text x="140" y="195" font-size="10" fill="#92400e" text-anchor="middle">(row, col) — row 0-based</text>
+
+      <rect x="252" y="160" width="184" height="46" rx="6" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+      <text x="344" y="179" font-size="10.5" fill="#0f172a" text-anchor="middle">row + 1</text>
+      <text x="344" y="195" font-size="10" fill="#64748b" text-anchor="middle">col kept verbatim</text>
+
+      <path d="M228,183 L248,183" stroke="#4f46e5" stroke-width="1.5" marker-end="url(#l1)"/>
+
+      <rect x="52" y="222" width="384" height="80" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+      <text x="68" y="242" font-size="10.5" font-weight="700" fill="#334155">Why the column stays in BYTES</text>
+      <text x="68" y="259" font-size="10" fill="#475569">tree-sitter reports columns in bytes, not characters. Converting to a</text>
+      <text x="68" y="274" font-size="10" fill="#475569">character offset would make the span disagree with the parser for slicing.</text>
+      <text x="68" y="291" font-size="10" fill="#b45309">Consequence: columns diverge from string indices on non-ASCII files.</text>
+
+      <!-- validation -->
+      <rect x="484" y="120" width="452" height="200" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+      <text x="504" y="144" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="#4338ca">problems() — never raises</text>
+
+      <rect x="512" y="158" width="396" height="30" rx="6" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+      <text x="528" y="177" font-size="10.5" fill="#0f172a">start_line &lt; 1 &nbsp;·&nbsp; end_line &lt; 1 &nbsp;·&nbsp; start_col &lt; 0 &nbsp;·&nbsp; end_col &lt; 0</text>
+
+      <path d="M710,188 L710,200" stroke="#4f46e5" stroke-width="1.5" marker-end="url(#l1)"/>
+      <polygon points="710,202 790,222 710,242 630,222" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="710" y="219" font-size="10" fill="#0f172a" text-anchor="middle">(end_line,end_col)</text>
+      <text x="710" y="232" font-size="10" fill="#0f172a" text-anchor="middle">&lt; (start_line,start_col)?</text>
+
+      <text x="830" y="226" font-size="10" fill="#b45309">yes → "span end …</text>
+      <text x="830" y="239" font-size="10" fill="#b45309">precedes start"</text>
+
+      <rect x="512" y="256" width="396" height="46" rx="6" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="528" y="274" font-size="10.5" font-weight="700" fill="#0f766e">is_valid() = not problems()</text>
+      <text x="528" y="291" font-size="10" fill="#0f766e">Callers aggregate these into a validation report — a malformed span is data, not an exception.</text>
+    </svg>
+    </div>
+
+    <h4>Small logics worth knowing</h4>
+    <table>
+      <tr><th>Member</th><th>Behaviour</th></tr>
+      <tr><td><code>point(line, col)</code></td><td>Zero-width span <code>(l,c,l,c)</code>. Used to anchor relationships to a token.</td></tr>
+      <tr><td><code>whole_file(line_count)</code></td><td><code>(1, 0, max(1,n), 0)</code>. The module symbol's span. The <code>max(1,…)</code> guards a zero-line file.</td></tr>
+      <tr><td><code>line_count</code></td><td><code>end_line − start_line + 1</code> — inclusive, despite the end being exclusive.</td></tr>
+      <tr><td><code>order=True</code></td><td>Spans sort lexicographically by <code>(start_line, start_col, end_line, end_col)</code>. <code>query_extractor</code> relies on this for its binding sort.</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="enums">5. <span class="mono">core/enums.py</span></h2>
+
+<div class="file">
+  <div class="hd">
+    <span class="tag core">core</span>
+    <span class="path">maat/core/enums.py</span>
+    <span class="role">closed vocabularies — the persisted contract</span>
+    <span class="loc">175 lines · 9 enums · 1 base class</span>
+  </div>
+  <div class="bd">
+    <p>No logic except two derived properties on <code>ParseStatus</code>. These values are written into <code>ir.json</code>, so <em>adding</em> a member is compatible and <em>renaming</em> one is not.</p>
+
+    <div class="diagram">
+    <svg viewBox="0 0 960 330" role="img" aria-label="Enum taxonomy">
+      <rect x="24" y="20" width="912" height="60" rx="10" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="44" y="44" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="#4338ca">class _StrEnum(str, Enum) — __str__ returns self.value</text>
+      <text x="44" y="64" font-size="11" fill="#4338ca">so <tspan font-family="ui-monospace,monospace">str(ParseStatus.OK) == "OK"</tspan>, not "ParseStatus.OK". Required because these strings go straight into canonical JSON and later into SQLite/FTS5 columns.</text>
+
+      <!-- enums grid -->
+      <rect x="24" y="98" width="222" height="112" rx="8" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="40" y="118" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#0f766e">ParseStatus</text>
+      <text x="40" y="136" font-size="10.5" fill="#0f172a">OK · PARTIAL · FAILED</text>
+      <text x="40" y="151" font-size="10.5" fill="#0f172a">EMPTY · UNSUPPORTED</text>
+      <text x="40" y="172" font-size="10" fill="#0d9488">is_error → FAILED only</text>
+      <text x="40" y="187" font-size="10" fill="#0d9488">is_degraded → PARTIAL|FAILED</text>
+      <text x="40" y="202" font-size="10" fill="#64748b">EMPTY/UNSUPPORTED are expected</text>
+
+      <rect x="256" y="98" width="222" height="112" rx="8" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="272" y="118" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#0f766e">SymbolType</text>
+      <text x="272" y="136" font-size="10.5" fill="#0f172a">MODULE · CLASS · INTERFACE</text>
+      <text x="272" y="151" font-size="10.5" fill="#0f172a">ENUM · FUNCTION · METHOD</text>
+      <text x="272" y="166" font-size="10.5" fill="#0f172a">CONSTRUCTOR · FIELD</text>
+      <text x="272" y="181" font-size="10.5" fill="#0f172a">PARAMETER · VARIABLE</text>
+      <text x="272" y="196" font-size="10.5" fill="#0f172a">IMPORT · TYPE_ALIAS</text>
+
+      <rect x="488" y="98" width="222" height="112" rx="8" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="504" y="118" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#0f766e">RelationshipType</text>
+      <text x="504" y="136" font-size="10.5" fill="#0f172a">CONTAINS · IMPORTS</text>
+      <text x="504" y="151" font-size="10.5" fill="#0f172a">CALLS · INHERITS</text>
+      <text x="504" y="166" font-size="10.5" fill="#0f172a">REFERENCES · IMPLEMENTS</text>
+      <text x="504" y="190" font-size="10" fill="#b45309">observed only — derived types</text>
+      <text x="504" y="204" font-size="10" fill="#b45309">(DEPENDS_ON etc.) are absent by design</text>
+
+      <rect x="720" y="98" width="216" height="112" rx="8" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="736" y="118" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#0f766e">ResolutionStatus</text>
+      <text x="736" y="136" font-size="10.5" fill="#0f172a">RESOLVED_EXACT</text>
+      <text x="736" y="151" font-size="10.5" fill="#0f172a">RESOLVED_HEURISTIC</text>
+      <text x="736" y="166" font-size="10.5" fill="#0f172a">AMBIGUOUS</text>
+      <text x="736" y="181" font-size="10.5" fill="#0f172a">UNRESOLVED</text>
+      <text x="736" y="200" font-size="10" fill="#b45309">4 values, not 2 — so "I don't know"</text>
+      <text x="736" y="204" font-size="10" fill="#b45309">and "two candidates" are representable</text>
+
+      <!-- second row -->
+      <rect x="24" y="222" width="222" height="88" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+      <text x="40" y="242" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#334155">FileKind</text>
+      <text x="40" y="260" font-size="10.5" fill="#0f172a">SOURCE · BINARY</text>
+      <text x="40" y="275" font-size="10.5" fill="#0f172a">GENERATED · IGNORED</text>
+      <text x="40" y="290" font-size="10.5" fill="#0f172a">UNSUPPORTED</text>
+
+      <rect x="256" y="222" width="222" height="88" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+      <text x="272" y="242" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#334155">BindingScope</text>
+      <text x="272" y="260" font-size="10.5" fill="#0f172a">LOCAL · INSTANCE</text>
+      <text x="272" y="275" font-size="10.5" fill="#0f172a">PARAMETER</text>
+      <text x="272" y="296" font-size="10" fill="#7c3aed">added for Stage 6</text>
+
+      <rect x="488" y="222" width="222" height="88" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+      <text x="504" y="242" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#334155">VersionStatus</text>
+      <text x="504" y="260" font-size="10.5" fill="#0f172a">BUILDING · PUBLISHED</text>
+      <text x="504" y="275" font-size="10.5" fill="#0f172a">FAILED · SUPERSEDED</text>
+
+      <rect x="720" y="222" width="216" height="88" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+      <text x="736" y="242" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#334155">DiagnosticSeverity · ChangeKind</text>
+      <text x="736" y="260" font-size="10.5" fill="#0f172a">ERROR · WARNING · INFO</text>
+      <text x="736" y="275" font-size="10.5" fill="#0f172a">NEW · CHANGED · DELETED · UNCHANGED</text>
+    </svg>
+    </div>
+
+    <div class="note">
+      <span class="lbl">Declared but unused — do not delete without a decision</span>
+      <code>ChangeKind</code>, <code>SymbolType.PARAMETER / VARIABLE / IMPORT</code>, <code>RelationshipType.REFERENCES / IMPLEMENTS</code>
+      are forward-looking schema. §11 of the spec asks the extractor for "References" and "Implementations"; M1 produces neither.
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="contracts">6. <span class="mono">core/contracts.py</span></h2>
+
+<div class="file">
+  <div class="hd">
+    <span class="tag core">core</span>
+    <span class="path">maat/core/contracts.py</span>
+    <span class="role">the canonical semantic model</span>
+    <span class="loc">654 lines · 11 dataclasses</span>
+  </div>
+  <div class="bd">
+    <p>Mostly data, but the <code>problems()</code> methods are where the honesty rules are actually enforced. <strong>Validation never raises</strong> — every object returns a list of human-readable strings.</p>
+
+    <div class="diagram">
+    <svg viewBox="0 0 960 420" role="img" aria-label="Entity containment and validation">
+      <defs>
+        <marker id="c1" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+          <path d="M0,0 L7,3.2 L0,6.4 z" fill="#4f46e5"/>
+        </marker>
+      </defs>
+
+      <!-- containment -->
+      <rect x="24" y="20" width="560" height="230" rx="10" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="44" y="44" font-size="12" font-weight="700" fill="#4338ca">CONTAINMENT — SemanticIR owns everything</text>
+
+      <rect x="48" y="58" width="512" height="176" rx="8" fill="#fff" stroke="#c7d2fe" stroke-width="1.5"/>
+      <text x="66" y="78" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#4338ca">SemanticIR</text>
+      <text x="66" y="94" font-size="10" fill="#64748b">model_version + 6 collections</text>
+
+      <rect x="68" y="106" width="150" height="52" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="143" y="125" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700" fill="#334155">FileRecord</text>
+      <text x="143" y="140" font-size="9.5" fill="#64748b" text-anchor="middle">path · hash · status</text>
+      <text x="143" y="152" font-size="9.5" fill="#64748b" text-anchor="middle">file_kind · counters</text>
+
+      <rect x="228" y="106" width="150" height="52" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="303" y="125" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700" fill="#334155">Symbol</text>
+      <text x="303" y="140" font-size="9.5" fill="#64748b" text-anchor="middle">id · file_id · qname</text>
+      <text x="303" y="152" font-size="9.5" fill="#64748b" text-anchor="middle">type · location · doc</text>
+
+      <rect x="388" y="106" width="152" height="52" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="464" y="125" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700" fill="#334155">Relationship</text>
+      <text x="464" y="140" font-size="9.5" fill="#64748b" text-anchor="middle">src · target · type</text>
+      <text x="464" y="152" font-size="9.5" fill="#64748b" text-anchor="middle">status · confidence</text>
+
+      <rect x="68" y="168" width="150" height="52" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="143" y="187" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700" fill="#334155">Evidence</text>
+      <text x="143" y="202" font-size="9.5" fill="#64748b" text-anchor="middle">entity_id · file_id</text>
+      <text x="143" y="214" font-size="9.5" fill="#64748b" text-anchor="middle">start/end_line · score</text>
+
+      <rect x="228" y="168" width="150" height="52" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="303" y="187" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700" fill="#334155">SemanticChunk</text>
+      <text x="303" y="202" font-size="9.5" fill="#64748b" text-anchor="middle">symbol_id · text</text>
+      <text x="303" y="214" font-size="9.5" fill="#64748b" text-anchor="middle">chunk_type · tokens</text>
+
+      <rect x="388" y="168" width="152" height="52" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="464" y="187" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700" fill="#334155">Diagnostic</text>
+      <text x="464" y="202" font-size="9.5" fill="#64748b" text-anchor="middle">severity · code · span</text>
+      <text x="464" y="214" font-size="9.5" fill="#64748b" text-anchor="middle">recovery_action</text>
+
+      <!-- neighbours -->
+      <rect x="604" y="20" width="332" height="76" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="622" y="40" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#334155">RepositorySnapshot</text>
+      <text x="622" y="58" font-size="10" fill="#475569">files[] + excluded[] + taken_at</text>
+      <text x="622" y="76" font-size="10" fill="#64748b">excluded[] is why "why is my file missing?"</text>
+      <text x="622" y="90" font-size="10" fill="#64748b">always has an answer</text>
+
+      <rect x="604" y="108" width="332" height="76" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="622" y="128" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#334155">ChangeSet</text>
+      <text x="622" y="146" font-size="10" fill="#475569">new · changed · deleted · unchanged · renamed</text>
+      <text x="622" y="164" font-size="10" fill="#b45309">scheduled_for_parse includes renames — deliberate</text>
+      <text x="622" y="178" font-size="10" fill="#64748b">(symbol IDs are path-derived, so a move changes identity)</text>
+
+      <rect x="604" y="196" width="332" height="54" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="622" y="216" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#334155">ModelVersion</text>
+      <text x="622" y="234" font-size="10" fill="#475569">id · created_at · parent_id · counts · status</text>
+
+      <!-- validation flow -->
+      <rect x="24" y="268" width="912" height="140" rx="10" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+      <text x="44" y="292" font-size="12" font-weight="700" fill="#b45309">problems() — the four invariants that matter</text>
+
+      <rect x="48" y="304" width="210" height="88" rx="6" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="62" y="322" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700" fill="#b45309">Relationship</text>
+      <text x="62" y="339" font-size="9.5" fill="#334155">EXACT ⇒ confidence 1.0</text>
+      <text x="62" y="353" font-size="9.5" fill="#334155">UNRESOLVED ⇒ 0.0</text>
+      <text x="62" y="367" font-size="9.5" fill="#334155">unresolved ⇒ target_name set</text>
+      <text x="62" y="384" font-size="9.5" fill="#b45309">status↔confidence locked together</text>
+
+      <rect x="270" y="304" width="210" height="88" rx="6" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="284" y="322" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700" fill="#b45309">FileRecord</text>
+      <text x="284" y="339" font-size="9.5" fill="#334155">no leading / or \ or ":"</text>
+      <text x="284" y="353" font-size="9.5" fill="#334155">no "\" — POSIX separators only</text>
+      <text x="284" y="367" font-size="9.5" fill="#334155">FAILED ⇒ parse_error set</text>
+      <text x="284" y="384" font-size="9.5" fill="#b45309">the cross-platform guard</text>
+
+      <rect x="492" y="304" width="210" height="88" rx="6" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="506" y="322" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700" fill="#b45309">Symbol</text>
+      <text x="506" y="339" font-size="9.5" fill="#334155">name non-empty</text>
+      <text x="506" y="353" font-size="9.5" fill="#334155">non-MODULE ⇒ ":" in qname</text>
+      <text x="506" y="367" font-size="9.5" fill="#334155">location must be valid</text>
+      <text x="506" y="384" font-size="9.5" fill="#b45309">delegates to SourceSpan.problems()</text>
+
+      <rect x="714" y="304" width="198" height="88" rx="6" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="728" y="322" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700" fill="#b45309">SemanticIR</text>
+      <text x="728" y="339" font-size="9.5" fill="#334155">single pass, indexed sets</text>
+      <text x="728" y="353" font-size="9.5" fill="#334155">referential integrity</text>
+      <text x="728" y="367" font-size="9.5" fill="#334155">duplicate ID detection</text>
+      <text x="728" y="384" font-size="9.5" fill="#b45309">linear, not nested loops</text>
+    </svg>
+    </div>
+
+    <div class="note key">
+      <span class="lbl">The one line that makes the whole honesty story testable</span>
+      <code>if idgen.is_unresolved_target(self.target_symbol_id) and not self.target_name: issues.append("an unresolved relationship must record target_name")</code><br>
+      Together with the two confidence rules, this means an edge can be <em>unresolved</em> or <em>confident</em> — but never confidently unresolved, and never unresolved with no record of what it was looking for.
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="serialization">7. <span class="mono">core/serialization.py</span></h2>
+
+<div class="file">
+  <div class="hd">
+    <span class="tag core">core</span>
+    <span class="path">maat/core/serialization.py</span>
+    <span class="role">canonical JSON + atomic writes</span>
+    <span class="loc">112 lines · 5 functions</span>
+  </div>
+  <div class="bd">
+    <p>Where determinism is easiest to lose, and where §9 AC6 (interrupted update) is actually implemented.</p>
+
+    <div class="diagram">
+    <svg viewBox="0 0 960 400" role="img" aria-label="Atomic write sequence">
+      <defs>
+        <marker id="s1" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+          <path d="M0,0 L7,3.2 L0,6.4 z" fill="#0d9488"/>
+        </marker>
+      </defs>
+
+      <!-- canonical_json -->
+      <rect x="24" y="20" width="440" height="150" rx="10" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="44" y="44" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="#0f766e">canonical_json(payload)</text>
+
+      <rect x="48" y="58" width="392" height="26" rx="5" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="62" y="76" font-size="10.5" fill="#0f172a"><tspan font-family="ui-monospace,monospace">sort_keys=True</tspan> — insertion order cannot leak</text>
+      <rect x="48" y="90" width="392" height="26" rx="5" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="62" y="108" font-size="10.5" fill="#0f172a"><tspan font-family="ui-monospace,monospace">separators=(",", ": ")</tspan> — no incidental whitespace drift</text>
+      <rect x="48" y="122" width="392" height="26" rx="5" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="62" y="140" font-size="10.5" fill="#0f172a"><tspan font-family="ui-monospace,monospace">ensure_ascii=False</tspan> — unicode round-trips</text>
+
+      <rect x="48" y="154" width="392" height="0" fill="none"/>
+
+      <!-- _json_default -->
+      <rect x="484" y="20" width="452" height="150" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+      <text x="504" y="44" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="#334155">_json_default(value) — the fallback ladder</text>
+
+      <polygon points="600,64 700,88 600,112 500,88" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="600" y="92" font-size="10" fill="#0f172a" text-anchor="middle">has .value: str?</text>
+      <text x="724" y="86" font-size="10" fill="#0f766e">→ str(value)</text>
+      <text x="724" y="99" font-size="10" fill="#64748b">enums, via _StrEnum</text>
+
+      <polygon points="600,124 700,148 600,172 500,148" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="600" y="152" font-size="10" fill="#0f172a" text-anchor="middle">has .to_dict?</text>
+      <text x="724" y="152" font-size="10" fill="#0f766e">→ value.to_dict()</text>
+
+      <text x="504" y="192" font-size="10" fill="#b45309">else → <tspan font-family="ui-monospace,monospace">raise TypeError</tspan> — loud, never silently stringified into the model</text>
+      <rect x="48" y="154" width="392" height="0"/>
+
+      <!-- write_json -->
+      <rect x="24" y="190" width="912" height="196" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="44" y="214" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="#334155">write_json(path, payload) — atomic</text>
+
+      <rect x="48" y="228" width="150" height="30" rx="6" fill="#fff" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="123" y="248" font-size="10" fill="#0f172a" text-anchor="middle">mkdir parents</text>
+      <rect x="216" y="228" width="150" height="30" rx="6" fill="#fff" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="291" y="248" font-size="10" fill="#0f172a" text-anchor="middle">canonical_json()</text>
+      <rect x="384" y="228" width="170" height="30" rx="6" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="469" y="248" font-size="10" fill="#0f172a" text-anchor="middle">mkstemp(.tmp-*.json)</text>
+      <rect x="572" y="228" width="150" height="30" rx="6" fill="#fff" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="647" y="248" font-size="10" fill="#0f172a" text-anchor="middle">write + flush</text>
+      <rect x="740" y="228" width="170" height="30" rx="6" fill="#fff" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="825" y="248" font-size="10" fill="#0f172a" text-anchor="middle">os.fsync(fileno)</text>
+
+      <path d="M198,243 L212,243" stroke="#0d9488" stroke-width="1.5" marker-end="url(#s1)"/>
+      <path d="M366,243 L380,243" stroke="#0d9488" stroke-width="1.5" marker-end="url(#s1)"/>
+      <path d="M554,243 L568,243" stroke="#0d9488" stroke-width="1.5" marker-end="url(#s1)"/>
+      <path d="M722,243 L736,243" stroke="#0d9488" stroke-width="1.5" marker-end="url(#s1)"/>
+
+      <path d="M825,258 L825,272" stroke="#0d9488" stroke-width="1.5" marker-end="url(#s1)"/>
+      <rect x="720" y="274" width="190" height="30" rx="6" fill="#f0fdfa" stroke="#5eead4" stroke-width="2"/>
+      <text x="815" y="294" font-size="10.5" font-weight="700" fill="#0f766e" text-anchor="middle">os.replace(tmp, target)</text>
+
+      <rect x="48" y="274" width="640" height="94" rx="6" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="64" y="294" font-size="10.5" font-weight="700" fill="#b91c1c">except BaseException → os.unlink(tmp) → re-raise</text>
+      <text x="64" y="312" font-size="10" fill="#7f1d1d">A stray .tmp- file is never left behind, and the target is never touched.</text>
+      <text x="64" y="330" font-size="10" fill="#7f1d1d">The reader therefore sees either the complete old file or the complete new one —</text>
+      <text x="64" y="345" font-size="10" fill="#7f1d1d">which is §9 AC6 and §19 AC2 satisfied without any rollback logic.</text>
+      <text x="64" y="362" font-size="10" fill="#991b1b">Note: BaseException, not Exception — a KeyboardInterrupt still cleans up.</text>
+    </svg>
+    </div>
+
+    <table>
+      <tr><th>Function</th><th>Behaviour worth remembering</th></tr>
+      <tr><td><code>model_digest(ir)</code></td><td>Calls <code>ir.to_dict()</code>, pops <code>"counts"</code>, then SHA-256s the canonical JSON. The <code>counts</code> pop is why the determinism test passes even though <code>created_at</code> differs between runs — <code>created_at</code> lives inside <code>ModelVersion</code>, which is not part of <code>ir.to_dict()</code> at all.</td></tr>
+      <tr><td><code>combine_hashes(hashes)</code></td><td><code>"\n".join(sorted(hashes))</code> then SHA-256. <strong>Order-independent</strong> — this is what lets an unchanged repository produce an unchanged version ID regardless of discovery order.</td></tr>
+      <tr><td><code>read_json(path)</code></td><td>Plain <code>json.load</code>, no atomicity. Only used where a missing file is already handled by the caller.</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="languages">8. <span class="mono">offline/languages.py</span></h2>
+
+<div class="file">
+  <div class="hd">
+    <span class="tag t1">tier 1</span>
+    <span class="path">maat/offline/languages.py</span>
+    <span class="role">path → grammar key · extraction coverage</span>
+    <span class="loc">208 lines · 61 specs · 6 functions</span>
+  </div>
+  <div class="bd">
+    <p>One explicit table of 61 <code>LanguageSpec</code>s, two derived indexes built at import time, and a detection function. No grammar is written here — the grammars come from <code>tree_sitter_language_pack</code>.</p>
+
+    <div class="diagram">
+    <svg viewBox="0 0 960 420" role="img" aria-label="Language detection and the two coverage tiers">
+      <defs>
+        <marker id="lg1" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+          <path d="M0,0 L7,3.2 L0,6.4 z" fill="#0d9488"/>
+        </marker>
+      </defs>
+
+      <!-- build time -->
+      <rect x="24" y="20" width="912" height="92" rx="10" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="44" y="44" font-size="12" font-weight="700" fill="#0f766e">IMPORT TIME — two indexes, first writer wins</text>
+      <rect x="52" y="56" width="200" height="42" rx="6" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="152" y="74" font-size="10.5" fill="#0f172a" text-anchor="middle">_SPECS (61 tuples)</text>
+      <text x="152" y="89" font-size="9.5" fill="#64748b" text-anchor="middle">the explicit table</text>
+
+      <rect x="300" y="56" width="270" height="42" rx="6" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="435" y="74" font-size="10.5" fill="#0f172a" text-anchor="middle">_EXTENSION_INDEX: ".py" → "python"</text>
+      <text x="435" y="89" font-size="9.5" fill="#64748b" text-anchor="middle">setdefault — first writer wins</text>
+
+      <rect x="618" y="56" width="290" height="42" rx="6" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="763" y="74" font-size="10.5" fill="#0f172a" text-anchor="middle">_FILENAME_INDEX: "Makefile" → "make"</text>
+      <text x="763" y="89" font-size="9.5" fill="#64748b" text-anchor="middle">exact names, no extension needed</text>
+
+      <path d="M252,77 L296,77" stroke="#0d9488" stroke-width="1.5" marker-end="url(#lg1)"/>
+      <path d="M570,77 L614,77" stroke="#0d9488" stroke-width="1.5" marker-end="url(#lg1)"/>
+
+      <!-- detect_language -->
+      <rect x="24" y="132" width="520" height="272" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+      <text x="44" y="156" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="#0f766e">detect_language(path)</text>
+
+      <rect x="48" y="170" width="472" height="28" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="62" y="189" font-size="10.5" fill="#0f172a">name = path.rsplit("/", 1)[-1]</text>
+
+      <path d="M284,198 L284,208" stroke="#0d9488" stroke-width="1.5" marker-end="url(#lg1)"/>
+      <polygon points="284,210 380,232 284,254 188,232" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="284" y="236" font-size="10" fill="#0f172a" text-anchor="middle">name in _FILENAME_INDEX?</text>
+      <text x="404" y="236" font-size="10" fill="#0f766e">yes → return it</text>
+
+      <path d="M284,254 L284,266" stroke="#0d9488" stroke-width="1.5" marker-end="url(#lg1)"/>
+      <polygon points="284,268 380,290 284,312 188,290" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="284" y="288" font-size="10" fill="#0f172a" text-anchor="middle">name.lower() in index?</text>
+      <text x="404" y="294" font-size="10" fill="#0f766e">yes → return it</text>
+
+      <path d="M284,312 L284,324" stroke="#0d9488" stroke-width="1.5" marker-end="url(#lg1)"/>
+      <polygon points="284,326 380,348 284,370 188,348" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="284" y="346" font-size="10" fill="#0f172a" text-anchor="middle">dot = lowered.rfind(".") ≤ 0?</text>
+      <text x="404" y="352" font-size="10" fill="#b45309">yes → None</text>
+
+      <path d="M284,370 L284,382" stroke="#0d9488" stroke-width="1.5" marker-end="url(#lg1)"/>
+      <rect x="188" y="384" width="192" height="0" fill="none"/>
+      <text x="284" y="396" font-size="10" fill="#0f172a" text-anchor="middle">return _EXTENSION_INDEX.get(lowered[dot:])</text>
+
+      <!-- two tiers -->
+      <rect x="564" y="132" width="372" height="128" rx="10" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+      <text x="584" y="156" font-size="11.5" font-weight="700" fill="#b45309">Tier A — PARSE coverage (61 languages)</text>
+      <text x="584" y="176" font-size="10.5" fill="#92400e">every registered language can be parsed,</text>
+      <text x="584" y="191" font-size="10.5" fill="#92400e">because the pack ships its grammar</text>
+      <text x="584" y="212" font-size="10" fill="#64748b">is_code_language() → False for SQL, JSON,</text>
+      <text x="584" y="226" font-size="10" fill="#64748b">YAML, Markdown, CSV, Dockerfile…</text>
+      <text x="584" y="246" font-size="10" fill="#b45309">non-code is still parsed, but yields no symbols</text>
+
+      <rect x="564" y="276" width="372" height="128" rx="10" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="584" y="300" font-size="11.5" font-weight="700" fill="#6d28d9">Tier B — EXTRACT coverage (18 languages)</text>
+      <text x="584" y="320" font-size="10.5" fill="#5b21b6">extractable ⟺ queries/&lt;key&gt;.scm exists</text>
+      <text x="584" y="340" font-size="10.5" fill="#5b21b6">derived from the FILESYSTEM, lru_cache(1)</text>
+      <text x="584" y="362" font-size="10" fill="#64748b">Nothing to keep in sync: dropping in a .scm</text>
+      <text x="584" y="376" font-size="10" fill="#64748b">upgrades the language with zero Python changes.</text>
+      <text x="584" y="394" font-size="10" fill="#7c3aed">The only place extraction coverage is defined.</text>
+    </svg>
+    </div>
+
+    <div class="note">
+      <span class="lbl">Why not the pack's own detector</span>
+      <code>detect_language_from_path</code> maps <code>.csv</code> to a CSV grammar and <code>.txt</code> to a text grammar.
+      Those are not source code and must not enter the semantic model as if they were. An explicit table is also
+      <em>reviewable</em> and deterministic, which §8 AC5 requires.
+    </div>
+
+    <p><code>display_name()</code> and <code>registry_summary()</code> are reporting helpers; <code>registry_summary()</code> is currently untested (see <code>TODO.md</code> §6).</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="snapshot">9. <span class="mono">offline/snapshot.py</span></h2>
+
+<div class="file">
+  <div class="hd">
+    <span class="tag t1">tier 1</span>
+    <span class="path">maat/offline/snapshot.py</span>
+    <span class="role">Stage 1 — deterministic file manifest</span>
+    <span class="loc">341 lines · 9 constants · 8 functions</span>
+  </div>
+  <div class="bd">
+    <p>Walks the filesystem, classifies every file, hashes the survivors. Determinism comes from <strong>never trusting filesystem order</strong>.</p>
+
+    <div class="diagram">
+    <svg viewBox="0 0 960 560" role="img" aria-label="scan_repository activity diagram">
+      <defs>
+        <marker id="sn1" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+          <path d="M0,0 L7,3.2 L0,6.4 z" fill="#0d9488"/>
+        </marker>
+        <marker id="sn2" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+          <path d="M0,0 L7,3.2 L0,6.4 z" fill="#dc2626"/>
+        </marker>
+      </defs>
+
+      <!-- left column: walk -->
+      <rect x="24" y="20" width="440" height="252" rx="10" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="44" y="44" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="#0f766e">_iter_files(root, options)</text>
+
+      <rect x="48" y="58" width="392" height="28" rx="6" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="62" y="77" font-size="10.5" fill="#0f172a">os.walk(root) — yields arbitrary order</text>
+
+      <path d="M244,86 L244,96" stroke="#0d9488" stroke-width="1.5" marker-end="url(#sn1)"/>
+      <rect x="48" y="98" width="392" height="42" rx="6" fill="#fffbeb" stroke="#fcd34d" stroke-width="2"/>
+      <text x="62" y="116" font-size="10.5" font-weight="700" fill="#b45309">dir_names.sort() · file_names.sort() — IN PLACE</text>
+      <text x="62" y="132" font-size="10" fill="#92400e">os.walk uses these lists to decide traversal order, so sorting them sorts the walk</text>
+
+      <path d="M244,140 L244,150" stroke="#0d9488" stroke-width="1.5" marker-end="url(#sn1)"/>
+      <polygon points="244,152 356,174 244,196 132,174" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="244" y="172" font-size="10" fill="#0f172a" text-anchor="middle">directory.lower() in</text>
+      <text x="244" y="184" font-size="10" fill="#0f172a" text-anchor="middle">ignore_directories?</text>
+      <text x="380" y="178" font-size="9.5" fill="#b45309">yes → pruned[]</text>
+      <text x="380" y="191" font-size="9.5" fill="#64748b">+ dropped from dir_names</text>
+      <text x="108" y="178" font-size="9.5" fill="#0f766e">no →</text>
+      <text x="108" y="191" font-size="9.5" fill="#64748b">keep_dirs[]</text>
+
+      <path d="M244,196 L244,206" stroke="#0d9488" stroke-width="1.5" marker-end="url(#sn1)"/>
+      <text x="62" y="222" font-size="10.5" fill="#0f172a">dir_names[:] = keep_dirs &nbsp;← the prune</text>
+      <path d="M244,226 L244,236" stroke="#0d9488" stroke-width="1.5" marker-end="url(#sn1)"/>
+      <polygon points="244,238 344,254 244,270 144,254" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="244" y="258" font-size="10" fill="#0f172a" text-anchor="middle">_is_ignored_path?</text>
+      <text x="366" y="258" font-size="9.5" fill="#b45309">yes → ignored[]</text>
+      <text x="122" y="258" font-size="9.5" fill="#0f766e">no → kept[]</text>
+
+      <rect x="48" y="278" width="392" height="0"/>
+      <text x="44" y="292" font-size="10.5" fill="#0f766e">returns (sorted(kept), sorted(ignored), sorted(pruned))</text>
+
+      <!-- right column: classify -->
+      <rect x="496" y="20" width="440" height="524" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+      <text x="516" y="44" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="#334155">per candidate file — the classification ladder</text>
+
+      <rect x="520" y="58" width="392" height="26" rx="5" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="534" y="76" font-size="10.5" fill="#0f172a">read_bytes()</text>
+
+      <polygon points="716,92 800,110 716,128 632,110" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="716" y="114" font-size="9.5" fill="#991b1b" text-anchor="middle">OSError?</text>
+      <text x="820" y="114" font-size="9.5" fill="#b91c1c">→ FileRecord(FAILED,</text>
+      <text x="820" y="126" font-size="9.5" fill="#b91c1c">parse_error=…)</text>
+      <text x="612" y="114" font-size="9.5" fill="#0f766e">no →</text>
+
+      <path d="M716,128 L716,140" stroke="#0d9488" stroke-width="1.5" marker-end="url(#sn1)"/>
+      <polygon points="716,142 806,160 716,178 626,160" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="716" y="164" font-size="9.5" fill="#991b1b" text-anchor="middle">NUL in first 8192B?</text>
+      <text x="826" y="164" font-size="9.5" fill="#b91c1c">→ excluded BINARY</text>
+      <text x="606" y="164" font-size="9.5" fill="#0f766e">no →</text>
+
+      <path d="M716,178 L716,190" stroke="#0d9488" stroke-width="1.5" marker-end="url(#sn1)"/>
+      <polygon points="716,192 806,210 716,228 626,210" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="716" y="214" font-size="9.5" fill="#991b1b" text-anchor="middle">_looks_generated?</text>
+      <text x="826" y="214" font-size="9.5" fill="#b91c1c">→ excluded GENERATED</text>
+      <text x="606" y="214" font-size="9.5" fill="#0f766e">no →</text>
+
+      <path d="M716,228 L716,240" stroke="#0d9488" stroke-width="1.5" marker-end="url(#sn1)"/>
+      <polygon points="716,242 806,260 716,278 626,260" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="716" y="258" font-size="9.5" fill="#92400e" text-anchor="middle">language is None</text>
+      <text x="716" y="270" font-size="9.5" fill="#92400e" text-anchor="middle">or not is_code?</text>
+      <text x="826" y="262" font-size="9.5" fill="#b45309">→ UNSUPPORTED</text>
+      <text x="606" y="264" font-size="9.5" fill="#0f766e">no →</text>
+
+      <path d="M716,278 L716,290" stroke="#0d9488" stroke-width="1.5" marker-end="url(#sn1)"/>
+      <polygon points="716,292 806,310 716,328 626,310" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="716" y="314" font-size="9.5" fill="#92400e" text-anchor="middle">size == 0?</text>
+      <text x="826" y="312" font-size="9.5" fill="#b45309">→ SOURCE / EMPTY</text>
+      <text x="606" y="314" font-size="9.5" fill="#0f766e">no →</text>
+
+      <path d="M716,328 L716,340" stroke="#0d9488" stroke-width="1.5" marker-end="url(#sn1)"/>
+      <rect x="616" y="342" width="200" height="40" rx="6" fill="#f0fdfa" stroke="#5eead4" stroke-width="2"/>
+      <text x="716" y="360" font-size="10" font-weight="700" fill="#0f766e" text-anchor="middle">SOURCE / OK</text>
+      <text x="716" y="375" font-size="9" fill="#0f766e" text-anchor="middle">PROVISIONAL — snapshot cannot know</text>
+
+      <path d="M716,382 L716,392" stroke="#0d9488" stroke-width="1.5" marker-end="url(#sn1)"/>
+      <rect x="520" y="394" width="392" height="60" rx="6" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+      <text x="534" y="412" font-size="10.5" font-weight="700" fill="#334155">FileRecord(...)</text>
+      <text x="534" y="428" font-size="10" fill="#475569">content_hash = _hash_bytes(data) ← raw bytes, SHA-256</text>
+      <text x="534" y="443" font-size="10" fill="#475569">line_count = count(b"\n") + (1 if not endswith \n)</text>
+
+      <path d="M716,454 L716,466" stroke="#0d9488" stroke-width="1.5" marker-end="url(#sn1)"/>
+      <rect x="520" y="468" width="392" height="60" rx="6" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="534" y="486" font-size="10.5" font-weight="700" fill="#0f766e">files.sort(key=path) · excluded.sort(key=path)</text>
+      <text x="534" y="502" font-size="10" fill="#0f766e">RepositorySnapshot(root, model_version, files, excluded, taken_at)</text>
+      <text x="534" y="518" font-size="10" fill="#64748b">taken_at is metadata — never written into a FileRecord, never in the digest</text>
+    </svg>
+    <p class="cap">Two independent determinism mechanisms: sorted walk, and a final sort by path.</p>
+    </div>
+
+    <h4>The exclusion constants (159 entries total)</h4>
+    <table>
+      <tr><th>Constant</th><th>Count</th><th>Note</th></tr>
+      <tr><td><code>IGNORED_DIRECTORIES</code></td><td>50</td><td>Matched case-insensitively at any depth. Includes <code>.maat</code> — without it the index would be scanned on the next run and grow every time.</td></tr>
+      <tr><td><code>IGNORED_SUFFIXES</code></td><td>70</td><td>Lock files, compiled artefacts, media, archives, databases.</td></tr>
+      <tr><td><code>IGNORED_FILENAMES</code></td><td>12</td><td>OS junk plus every package-manager lock file.</td></tr>
+      <tr><td><code>GENERATED_PATH_MARKERS</code></td><td>6</td><td><strong><code>/gen/</code> is deliberately absent</strong> — it reads like "generated" but is a common ordinary package segment (<code>com/example/gen</code>), and using it silently dropped every Java file under such a package.</td></tr>
+      <tr><td><code>GENERATED_SUFFIXES</code></td><td>13</td><td><code>_pb2.py</code>, <code>.pb.go</code>, <code>.min.js</code>, <code>.freezed.dart</code>…</td></tr>
+      <tr><td><code>GENERATED_CONTENT_MARKERS</code></td><td>8</td><td><code>@generated</code>, <code>DO NOT EDIT</code>, <code>Code generated by</code>… searched in the first 8 KB.</td></tr>
+    </table>
+
+    <div class="note key">
+      <span class="lbl">The asymmetry that decides all three detectors</span>
+      <strong>A false positive silently removes real source from the model. A false negative merely leaves generated code in it.</strong>
+      The model can be queried about generated code; it can never be queried about code that was never indexed. So every heuristic here is biased toward keeping files.
+    </div>
+
+    <div class="note">
+      <span class="lbl">Why excluded files are recorded rather than dropped</span>
+      §8 AC4 says ignored/generated/binary files are <em>excluded</em>. Excluding them <strong>silently</strong> would be worse than including them — "why is my file missing?" deserves an answer. So they land in <code>snapshot.excluded</code> with a <code>FileKind</code> reason and are counted, but never reach the parser.
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="changes">10. <span class="mono">offline/changes.py</span></h2>
+
+<div class="file">
+  <div class="hd">
+    <span class="tag t1">tier 1</span>
+    <span class="path">maat/offline/changes.py</span>
+    <span class="role">Stage 2 — what needs reprocessing</span>
+    <span class="loc">153 lines · 4 functions</span>
+  </div>
+  <div class="bd">
+    <p>Three set differences plus one pairing algorithm. The interesting part is what it refuses to do.</p>
+
+    <div class="diagram">
+    <svg viewBox="0 0 960 430" role="img" aria-label="diff_snapshot and rename pairing">
+      <defs>
+        <marker id="ch1" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+          <path d="M0,0 L7,3.2 L0,6.4 z" fill="#0d9488"/>
+        </marker>
+      </defs>
+
+      <!-- manifest load -->
+      <rect x="24" y="20" width="440" height="120" rx="10" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="44" y="44" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="#0f766e">load_manifest(path) — defensive at every level</text>
+
+      <rect x="48" y="58" width="392" height="24" rx="5" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="62" y="75" font-size="10" fill="#0f172a">not is_file() → None</text>
+      <rect x="48" y="88" width="392" height="24" rx="5" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="62" y="105" font-size="10" fill="#0f172a">OSError | ValueError (truncated JSON) → None</text>
+      <rect x="48" y="118" width="392" height="24" rx="5" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="62" y="135" font-size="10" fill="#0f172a">not isinstance(dict) → None &nbsp;·&nbsp; entries not a list → None</text>
+
+      <text x="48" y="156" font-size="10" fill="#0f766e">per entry: keep only if <tspan font-family="ui-monospace,monospace">isinstance(dict) and "path" in it and "content_hash" in it</tspan></text>
+
+      <!-- diff -->
+      <rect x="496" y="20" width="440" height="120" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+      <text x="516" y="44" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="#334155">diff_snapshot(previous, current, prev_version)</text>
+
+      <polygon points="716,58 790,76 716,94 642,76" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="716" y="80" font-size="10" fill="#92400e" text-anchor="middle">previous is None?</text>
+      <text x="806" y="80" font-size="9.5" fill="#b45309">yes → ALL new,</text>
+      <text x="806" y="92" font-size="9.5" fill="#b45309">nothing else computed</text>
+
+      <text x="516" y="112" font-size="10" fill="#334155">no → three set ops:</text>
+      <text x="516" y="128" font-size="10" fill="#334155">new = cur − prev · deleted = prev − cur · common = cur ∩ prev</text>
+
+      <!-- renames -->
+      <rect x="24" y="160" width="912" height="150" rx="10" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="44" y="184" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="#6d28d9">_detect_renames(deleted, new, deleted_hashes, current_hashes)</text>
+
+      <rect x="52" y="198" width="400" height="46" rx="6" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="68" y="216" font-size="10.5" fill="#0f172a">1 · bucket NEW paths by hash</text>
+      <text x="68" y="232" font-size="10" fill="#5b21b6">for path in sorted(new_paths): available_by_hash[digest].append(path)</text>
+
+      <rect x="476" y="198" width="436" height="46" rx="6" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="492" y="216" font-size="10.5" fill="#0f172a">2 · walk DELETED paths in sorted order</text>
+      <text x="492" y="232" font-size="10" fill="#5b21b6">if candidates: pairs.append((old, candidates.pop(0)))</text>
+
+      <path d="M452,221 L472,221" stroke="#0d9488" stroke-width="1.5" marker-end="url(#ch1)"/>
+
+      <rect x="52" y="256" width="860" height="44" rx="6" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="68" y="274" font-size="10.5" font-weight="700" fill="#b91c1c">Only BYTE-IDENTICAL moves count. There is no similarity heuristic.</text>
+      <text x="68" y="291" font-size="10" fill="#7f1d1d">A heuristic would occasionally pair two unrelated files and silently mislabel a delete+add as a move — worse than missing the rename.</text>
+
+      <!-- exclusion from new/deleted -->
+      <rect x="24" y="326" width="912" height="86" rx="10" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+      <text x="44" y="350" font-size="11.5" font-weight="700" fill="#b45309">Renamed paths are removed from new[] and deleted[] so nothing is double-counted</text>
+      <rect x="52" y="362" width="270" height="38" rx="6" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="187" y="380" font-size="10" fill="#0f172a" text-anchor="middle">new = [p for p in new_paths</text>
+      <text x="187" y="393" font-size="10" fill="#0f172a" text-anchor="middle">if p not in renamed_new]</text>
+      <rect x="340" y="362" width="270" height="38" rx="6" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="475" y="380" font-size="10" fill="#0f172a" text-anchor="middle">deleted = [p for p in deleted_paths</text>
+      <text x="475" y="393" font-size="10" fill="#0f172a" text-anchor="middle">if p not in renamed_old]</text>
+      <rect x="628" y="362" width="284" height="38" rx="6" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="770" y="380" font-size="10" fill="#0f766e" text-anchor="middle">scheduled_for_parse = new ∪ changed ∪ renamed_new</text>
+      <text x="770" y="393" font-size="10" fill="#0f766e" text-anchor="middle">(computed as a property on ChangeSet)</text>
+    </svg>
+    </div>
+
+    <div class="note">
+      <span class="lbl">A rename <em>is</em> scheduled for parse — and that is correct</span>
+      §9 AC5 asks that a rename "does not unnecessarily trigger semantic recomputation <strong>when content is unchanged and cache policy allows reuse</strong>".
+      Our cache policy does not allow reuse: <code>symbol_id</code> is derived from the file path, so moving a file changes the identity of every symbol inside it.
+      Reusing the old parse would leave the model keyed to a path that no longer exists. The recomputation is therefore <em>necessary</em>, not unnecessary —
+      and the rename is still reported separately so callers can see what happened.
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="parser">11. <span class="mono">offline/parser.py</span></h2>
+
+<div class="file">
+  <div class="hd">
+    <span class="tag t2">tier 2</span>
+    <span class="path">maat/offline/parser.py</span>
+    <span class="role">Stage 3 — tree-sitter adapter</span>
+    <span class="loc">358 lines · 2 dataclasses · 8 functions</span>
+  </div>
+  <div class="bd">
+    <p>The module's own docstring states the point precisely: tree-sitter is error-tolerant by design and always returns a tree, so <strong>the work here is not recovery, it is classification</strong>. Nothing raises.</p>
+
+    <div class="diagram">
+    <svg viewBox="0 0 960 620" role="img" aria-label="parse status ladder">
+      <defs>
+        <marker id="p1" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+          <path d="M0,0 L7,3.2 L0,6.4 z" fill="#d97706"/>
+        </marker>
+      </defs>
+
+      <rect x="330" y="20" width="300" height="34" rx="17" fill="#fffbeb" stroke="#fcd34d" stroke-width="2"/>
+      <text x="480" y="42" font-size="11.5" font-weight="700" fill="#b45309" text-anchor="middle">parse(source, language, file_path)</text>
+
+      <path d="M480,54 L480,68" stroke="#d97706" stroke-width="1.5" marker-end="url(#p1)"/>
+      <polygon points="480,70 580,92 480,114 380,92" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="480" y="96" font-size="10" fill="#0f172a" text-anchor="middle">not source.strip()?</text>
+      <rect x="600" y="74" width="336" height="38" rx="6" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="616" y="91" font-size="10.5" font-weight="700" fill="#0f766e">EMPTY · has_tree=False · node_count=0</text>
+      <text x="616" y="105" font-size="9.5" fill="#0d9488">diagnostic code "parse.empty", severity INFO</text>
+      <path d="M580,92 L596,92" stroke="#d97706" stroke-width="1.5" marker-end="url(#p1)"/>
+
+      <path d="M480,114 L480,128" stroke="#d97706" stroke-width="1.5" marker-end="url(#p1)"/>
+      <polygon points="480,130 580,152 480,174 380,152" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="480" y="156" font-size="10" fill="#0f172a" text-anchor="middle">_build_parser raises</text>
+      <text x="480" y="168" font-size="10" fill="#0f172a" text-anchor="middle">GrammarUnavailableError?</text>
+      <rect x="600" y="134" width="336" height="38" rx="6" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="616" y="151" font-size="10.5" font-weight="700" fill="#b45309">UNSUPPORTED · has_tree=False</text>
+      <text x="616" y="165" font-size="9.5" fill="#92400e">code "parse.grammar_unavailable" — never escapes to caller</text>
+      <path d="M580,152 L596,152" stroke="#d97706" stroke-width="1.5" marker-end="url(#p1)"/>
+
+      <path d="M480,174 L480,188" stroke="#d97706" stroke-width="1.5" marker-end="url(#p1)"/>
+      <rect x="330" y="190" width="300" height="30" rx="6" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="480" y="209" font-size="10.5" fill="#0f172a" text-anchor="middle">tree = parser.parse(source) · root = tree.root_node</text>
+
+      <path d="M480,220 L480,234" stroke="#d97706" stroke-width="1.5" marker-end="url(#p1)"/>
+      <rect x="270" y="236" width="420" height="46" rx="6" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="286" y="254" font-size="10.5" font-weight="700" fill="#b91c1c">_walk_iteratively(root) — explicit stack, NO recursion</text>
+      <text x="286" y="270" font-size="10" fill="#7f1d1d">300 nested blocks → a tree &gt;600 deep. A recursive walk would hit Python's limit and raise — exactly what §30 forbids.</text>
+
+      <path d="M480,282 L480,296" stroke="#d97706" stroke-width="1.5" marker-end="url(#p1)"/>
+      <polygon points="480,298 580,320 480,342 380,320" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="480" y="317" font-size="10" fill="#0f172a" text-anchor="middle">error_count == 0</text>
+      <text x="480" y="329" font-size="10" fill="#0f172a" text-anchor="middle">and missing_count == 0?</text>
+      <rect x="600" y="302" width="336" height="34" rx="6" fill="#f0fdfa" stroke="#5eead4" stroke-width="2"/>
+      <text x="616" y="323" font-size="11" font-weight="700" fill="#0f766e">OK · no diagnostics from errors</text>
+      <path d="M580,320 L596,320" stroke="#d97706" stroke-width="1.5" marker-end="url(#p1)"/>
+
+      <path d="M480,342 L480,356" stroke="#d97706" stroke-width="1.5" marker-end="url(#p1)"/>
+      <polygon points="480,358 596,380 480,402 364,380" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="480" y="377" font-size="10" fill="#0f172a" text-anchor="middle">_has_clean_top_level_statement(root)</text>
+      <text x="480" y="389" font-size="10" fill="#0f172a" text-anchor="middle">returns False?</text>
+      <rect x="616" y="362" width="320" height="38" rx="6" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="632" y="379" font-size="10.5" font-weight="700" fill="#b91c1c">FAILED</text>
+      <text x="632" y="393" font-size="9.5" fill="#991b1b">+ code "parse.no_clean_statements", recovery FILE</text>
+      <path d="M596,380 L612,380" stroke="#d97706" stroke-width="1.5" marker-end="url(#p1)"/>
+
+      <path d="M480,402 L480,416" stroke="#d97706" stroke-width="1.5" marker-end="url(#p1)"/>
+      <rect x="616" y="406" width="320" height="34" rx="6" fill="#fffbeb" stroke="#fcd34d" stroke-width="2"/>
+      <text x="632" y="427" font-size="11" font-weight="700" fill="#b45309">PARTIAL — valid regions retained</text>
+      <text x="480" y="440" font-size="10" fill="#92400e" text-anchor="middle">otherwise ↓</text>
+
+      <!-- has_clean_top_level -->
+      <rect x="24" y="466" width="912" height="136" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="44" y="490" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="#334155">_has_clean_top_level_statement(root) — the PARTIAL/FAILED discriminator</text>
+
+      <rect x="52" y="504" width="256" height="84" rx="6" fill="#fff" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="68" y="522" font-size="10" fill="#334155">for child in root.children:</text>
+      <text x="68" y="539" font-size="10" fill="#64748b">skip if type == "ERROR"</text>
+      <text x="68" y="554" font-size="10" fill="#64748b">skip if child.is_missing</text>
+      <text x="68" y="569" font-size="10" fill="#64748b">skip if not child.is_named</text>
+      <text x="68" y="584" font-size="10" fill="#0f766e">return True if not child.has_error</text>
+
+      <rect x="328" y="504" width="272" height="84" rx="6" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="344" y="522" font-size="10.5" font-weight="700" fill="#0f766e">True means:</text>
+      <text x="344" y="539" font-size="10" fill="#0f766e">nine good functions + one broken one</text>
+      <text x="344" y="559" font-size="10.5" font-weight="700" fill="#b91c1c">False means:</text>
+      <text x="344" y="576" font-size="10" fill="#991b1b">everything sits inside one giant ERROR node</text>
+
+      <rect x="620" y="504" width="292" height="84" rx="6" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="636" y="522" font-size="10.5" font-weight="700" fill="#b45309">This is §10 AC6 made concrete</text>
+      <text x="636" y="540" font-size="10" fill="#92400e">The spec says "where Tree-sitter provides a</text>
+      <text x="636" y="554" font-size="10" fill="#92400e">usable partial tree" — "usable" is undefined.</text>
+      <text x="636" y="572" font-size="10" fill="#0f766e">This function is the definition: ≥1 clean</text>
+      <text x="636" y="585" font-size="10" fill="#0f766e">top-level statement.</text>
+    </svg>
+    <p class="cap">The status ladder is a strict order: EMPTY → UNSUPPORTED → OK → FAILED → PARTIAL.</p>
+    </div>
+
+    <h4>Small logics</h4>
+    <table>
+      <tr><th>Detail</th><th>Why</th></tr>
+      <tr><td><code>MAX_DIAGNOSTICS = 100</code></td><td>Bounds output on a catastrophically broken file. A <code>parse.truncated</code> INFO diagnostic is appended when the cap is hit. <code>parse()</code> returns <code>diagnostics[:max+1]</code> to leave room for it.</td></tr>
+      <tr><td><code>_load_language</code> / <code>_build_parser</code> are <code>lru_cache(128)</code></td><td>Grammars are large compiled objects. Caching matters across thousands of files. <code>load_grammar()</code> is the public accessor the extractor uses to compile its query.</td></tr>
+      <tr><td><code>except Exception</code> in <code>_load_language</code></td><td>Any loader failure is treated as "unavailable" — the specific exception type is not part of the contract.</td></tr>
+      <tr><td><code>text_of(node)</code></td><td>Decodes with <code>errors="replace"</code>. A file with mixed encodings must still yield symbols for its decodable regions.</td></tr>
+      <tr><td><code>ParserBackend</code> Protocol</td><td>The replaceability seam. The extractor only ever sees a <code>ParseOutcome</code>, so a language server or remote parser could be substituted without touching Tier 3.</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="base">12. <span class="mono">extractors/base.py</span></h2>
+
+<div class="file">
+  <div class="hd">
+    <span class="tag t3">tier 3</span>
+    <span class="path">maat/offline/extractors/base.py</span>
+    <span class="role">the Tier 2 → Tier 3 boundary</span>
+    <span class="loc">238 lines · 5 fact types · 3 helpers</span>
+  </div>
+  <div class="bd">
+    <p>Almost no logic — this file is a <em>type signature</em>. Its job is to be narrow enough that nothing language-specific can pass through it. §11 AC3 is enforced structurally here, not by a check.</p>
+
+    <div class="diagram">
+    <svg viewBox="0 0 960 330" role="img" aria-label="Fact vocabulary">
+      <rect x="24" y="20" width="912" height="52" rx="10" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="44" y="42" font-size="12" font-weight="700" fill="#6d28d9">A fact is NOT a semantic entity</text>
+      <text x="44" y="61" font-size="10.5" fill="#5b21b6">It carries source spans and RAW names. No ID, no model_version, no resolved target. Turning facts into entities is ir_builder's job.</text>
+
+      <rect x="24" y="86" width="292" height="110" rx="8" fill="#fff" stroke="#c4b5fd" stroke-width="1.5"/>
+      <text x="40" y="106" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#6d28d9">SymbolFact</text>
+      <text x="40" y="124" font-size="10" fill="#334155">name · symbol_type · qualified_name</text>
+      <text x="40" y="139" font-size="10" fill="#334155">span · signature · documentation</text>
+      <text x="40" y="154" font-size="10" fill="#334155">parent_qualified_name</text>
+      <text x="40" y="176" font-size="9.5" fill="#7c3aed">parent drives the CONTAINS edge</text>
+      <text x="40" y="190" font-size="9.5" fill="#b45309">no .node · no .node_type — nothing to leak</text>
+
+      <rect x="328" y="86" width="292" height="110" rx="8" fill="#fff" stroke="#c4b5fd" stroke-width="1.5"/>
+      <text x="344" y="106" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#6d28d9">ImportFact</text>
+      <text x="344" y="124" font-size="10" fill="#334155">module · span · names[]</text>
+      <text x="344" y="139" font-size="10" fill="#334155">alias · enclosing_qualified_name</text>
+      <text x="344" y="162" font-size="9.5" fill="#7c3aed">grouped per STATEMENT, not per capture</text>
+      <text x="344" y="176" font-size="9.5" fill="#64748b">names[] is a list — one import can bring many</text>
+
+      <rect x="632" y="86" width="304" height="110" rx="8" fill="#fff" stroke="#c4b5fd" stroke-width="1.5"/>
+      <text x="648" y="106" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#6d28d9">CallFact</text>
+      <text x="648" y="124" font-size="10" fill="#334155">callee_name · span · receiver</text>
+      <text x="648" y="139" font-size="10" fill="#334155">is_member_call · enclosing_qualified_name</text>
+      <text x="648" y="162" font-size="9.5" fill="#7c3aed">target_name = "receiver.callee" or callee</text>
+      <text x="648" y="176" font-size="9.5" fill="#b45309">receiver is RAW TEXT — "self.repository"</text>
+
+      <rect x="24" y="212" width="292" height="100" rx="8" fill="#fff" stroke="#c4b5fd" stroke-width="1.5"/>
+      <text x="40" y="232" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#6d28d9">InheritFact</text>
+      <text x="40" y="250" font-size="10" fill="#334155">base_name · span</text>
+      <text x="40" y="265" font-size="10" fill="#334155">enclosing_qualified_name</text>
+      <text x="40" y="288" font-size="9.5" fill="#64748b">one fact per base class</text>
+      <text x="40" y="302" font-size="9.5" fill="#64748b">class A(B, C, D) → three facts</text>
+
+      <rect x="328" y="212" width="608" height="100" rx="8" fill="#fffbeb" stroke="#fde68a" stroke-width="2"/>
+      <text x="344" y="232" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700" fill="#b45309">BindingFact — added for Stage 6, and it is the one that changes the story</text>
+      <text x="344" y="250" font-size="10" fill="#92400e">bound_name · type_name · span · scope · enclosing_qualified_name</text>
+      <text x="344" y="270" font-size="10" fill="#92400e"><tspan font-weight="700">type_name is RAW</tspan> — "Service" or even "repo" (an alias to another binding, followed one hop further)</text>
+      <text x="344" y="288" font-size="10" fill="#b45309"><tspan font-weight="700">enclosing_qualified_name for INSTANCE is usually __init__</tspan> — which is why resolution must fall back from the call site's method to the class constructor</text>
+      <text x="344" y="304" font-size="9.5" fill="#991b1b">Captured in Python only so far. 17 languages still have zero @bind.* patterns.</text>
+    </svg>
+    </div>
+
+    <h4>Small logics</h4>
+    <table>
+      <tr><th>Member</th><th>Behaviour</th></tr>
+      <tr><td><code>INSTANCE_RECEIVER_TOKENS</code></td><td><code>{"self","this","cls","Self","Me","$this","static","@"}</code>. One shared vocabulary, not 18 per-language branches — "the current instance" is a linguistic fact about OO languages. Used by the extractor to classify a binding as <code>INSTANCE</code>, and later by the resolver to route a member call.</td></tr>
+      <tr><td><code>module_path_for(path, lang)</code></td><td><code>services/payment_service.py → services.payment_service</code>. Strips the extension at the last dot after the last slash, drops a trailing <code>__init__</code> / <code>index</code> / <code>mod</code>. A <em>naming convention</em>, not a resolution — for Go and Java it is a best-effort label rather than a claim.</td></tr>
+      <tr><td><code>looks_like_identifier(text)</code></td><td>True only if every character is in <code>[A-Za-z0-9_.$]</code>. Guards the call extractor: <code>obj.method</code> passes, <code>foo().bar[0]</code> does not. Also used to reject complex annotations like <code>Optional[Repo]</code> as binding types.</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="qx">13. <span class="mono">extractors/query_extractor.py</span></h2>
+
+<div class="file">
+  <div class="hd">
+    <span class="tag t3">tier 3</span>
+    <span class="path">maat/offline/extractors/query_extractor.py</span>
+    <span class="role">one engine, 18 languages</span>
+    <span class="loc">538 lines · the largest module</span>
+  </div>
+  <div class="bd">
+    <p>The most complex file in M1. What makes it work across grammars that agree on almost nothing is three mechanisms, stated in its own docstring.</p>
+
+    <div class="diagram">
+    <svg viewBox="0 0 960 300" role="img" aria-label="The three mechanisms">
+      <rect x="24" y="20" width="292" height="256" rx="10" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="44" y="44" font-size="12" font-weight="700" fill="#6d28d9">1 · Pairing by match</text>
+      <text x="44" y="66" font-size="10" fill="#334155">Each definition pattern captures BOTH</text>
+      <text x="44" y="81" font-size="10" fill="#334155">the declaration (@def.*) and its name</text>
+      <text x="44" y="96" font-size="10" fill="#334155">(@name.*) in the same pattern.</text>
+      <rect x="44" y="110" width="252" height="66" rx="6" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="58" y="128" font-size="9.5" fill="#5b21b6">In C the identifier sits inside a</text>
+      <text x="58" y="142" font-size="9.5" fill="#5b21b6">function_declarator; in Go a method name</text>
+      <text x="58" y="156" font-size="9.5" fill="#5b21b6">is a field_identifier. Pairing per match</text>
+      <text x="58" y="170" font-size="9.5" fill="#5b21b6">means never needing to know that.</text>
+      <text x="44" y="200" font-size="10" fill="#b45309">Consequence: capture values are LISTS.</text>
+      <text x="44" y="215" font-size="10" fill="#b45309">One pattern can bind a capture several</text>
+      <text x="44" y="230" font-size="10" fill="#b45309">times — class A(B, C, D) gives three</text>
+      <text x="44" y="245" font-size="10" fill="#b45309">@inherit nodes. Taking only [0] would</text>
+      <text x="44" y="260" font-size="10" fill="#b45309">silently drop every base after the first.</text>
+
+      <rect x="334" y="20" width="292" height="256" rx="10" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="354" y="44" font-size="12" font-weight="700" fill="#6d28d9">2 · Nesting by span containment</text>
+      <text x="354" y="66" font-size="10" fill="#334155">Every node has a byte range, and</text>
+      <text x="354" y="81" font-size="10" fill="#334155">declaration ranges are properly nested.</text>
+      <text x="354" y="96" font-size="10" fill="#334155">So a declaration's parent is simply the</text>
+      <text x="354" y="111" font-size="10" fill="#334155">innermost other declaration containing it.</text>
+      <rect x="354" y="126" width="252" height="82" rx="6" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="368" y="144" font-size="9.5" fill="#5b21b6">No per-language list of "container node</text>
+      <text x="368" y="158" font-size="9.5" fill="#5b21b6">types" is required. This is what produces</text>
+      <text x="368" y="172" font-size="9.5" fill="#5b21b6">qualified names and the CONTAINS edges.</text>
+      <text x="368" y="192" font-size="9.5" fill="#0f766e">Implementation: sort by (start_byte, −end_byte),</text>
+      <text x="368" y="204" font-size="9.5" fill="#0f766e">then a stack — pop while the top does not contain.</text>
+      <text x="354" y="230" font-size="10" fill="#b45309">The module is modelled as the OUTERMOST</text>
+      <text x="354" y="245" font-size="10" fill="#b45309">declaration rather than special-cased.</text>
+      <text x="354" y="260" font-size="10" fill="#b45309">One choice, three payoffs: top-level symbols</text>
+
+      <rect x="644" y="20" width="292" height="256" rx="10" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="664" y="44" font-size="12" font-weight="700" fill="#6d28d9">3 · Reclassification by context</text>
+      <text x="664" y="66" font-size="10" fill="#334155">Kotlin, Swift, Scala, Dart and C++ use ONE</text>
+      <text x="664" y="81" font-size="10" fill="#334155">function_declaration-style node for both</text>
+      <text x="664" y="96" font-size="10" fill="#334155">top-level functions and methods. The</text>
+      <text x="664" y="111" font-size="10" fill="#334155">grammar cannot tell them apart.</text>
+      <rect x="664" y="126" width="252" height="56" rx="6" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="678" y="145" font-size="9.5" fill="#5b21b6">if symbol_type is FUNCTION and the parent</text>
+      <text x="678" y="159" font-size="9.5" fill="#5b21b6">is CLASS | INTERFACE | ENUM:</text>
+      <text x="678" y="174" font-size="9.5" font-weight="700" fill="#6d28d9">→ reclassify as METHOD</text>
+      <text x="664" y="200" font-size="10" fill="#0f766e">True in every language in the registry,</text>
+      <text x="664" y="215" font-size="10" fill="#0f766e">so the rule needs no exceptions.</text>
+      <text x="664" y="240" font-size="10" fill="#b45309">Rather than encode per-language rules in</text>
+      <text x="664" y="255" font-size="10" fill="#b45309">18 query files, one context rule covers all.</text>
+    </svg>
+    </div>
+
+    <h4>extract() — the phases, in order</h4>
+    <div class="diagram">
+    <svg viewBox="0 0 960 700" role="img" aria-label="extract phases">
+      <defs>
+        <marker id="q1" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+          <path d="M0,0 L7,3.2 L0,6.4 z" fill="#7c3aed"/>
+        </marker>
+      </defs>
+
+      <!-- 0 -->
+      <rect x="24" y="16" width="912" height="46" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="44" y="36" font-size="11" font-weight="700" fill="#334155">0 · module symbol is ALWAYS emitted first</text>
+      <text x="44" y="53" font-size="10" fill="#64748b">Even for an empty file. It gives top-level statements somewhere to attach, so a top-level call is never orphaned. symbols[0] is the module, and everything downstream relies on that.</text>
+
+      <path d="M480,62 L480,74" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#q1)"/>
+
+      <!-- 1 -->
+      <rect x="24" y="76" width="912" height="66" rx="8" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+      <text x="44" y="96" font-size="11" font-weight="700" fill="#b45309">1 · tree is None → return early (module symbol only)</text>
+      <text x="44" y="114" font-size="10" fill="#92400e">2 · _load_query(language) fails → append diagnostic "extract.no_query" → return early. Honest degradation: the file was parsed, it yields no symbols, and it says so.</text>
+      <text x="44" y="132" font-size="10" fill="#92400e">Query is compiled once per language via lru_cache(128) and wraps <tspan font-family="ui-monospace,monospace">ts.Query(load_grammar(lang), source)</tspan>.</text>
+
+      <path d="M480,142 L480,154" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#q1)"/>
+
+      <!-- 2 collect -->
+      <rect x="24" y="156" width="912" height="130" rx="8" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="44" y="176" font-size="11" font-weight="700" fill="#6d28d9">3 · single pass over QueryCursor.matches() — collect, do not build</text>
+      <text x="44" y="194" font-size="10" fill="#5b21b6">For each (pattern_index, capture_map), five independent collectors run. Nothing is constructed yet — the pass only gathers nodes.</text>
+
+      <rect x="44" y="204" width="172" height="70" rx="6" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="58" y="221" font-size="9.5" font-weight="700" fill="#6d28d9">declarations{}</text>
+      <text x="58" y="236" font-size="9" fill="#5b21b6">keyed by node.id so a</text>
+      <text x="58" y="249" font-size="9" fill="#5b21b6">declaration matched by two</text>
+      <text x="58" y="262" font-size="9" fill="#5b21b6">patterns is recorded once</text>
+
+      <rect x="226" y="204" width="172" height="70" rx="6" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="240" y="221" font-size="9.5" font-weight="700" fill="#6d28d9">import_captures[]</text>
+      <text x="240" y="236" font-size="9" fill="#5b21b6">(node, kind, text) where</text>
+      <text x="240" y="249" font-size="9" fill="#5b21b6">kind ∈ module|name|alias.</text>
+      <text x="240" y="262" font-size="9" fill="#5b21b6">Iterates ALL nodes, not [0]</text>
+
+      <rect x="408" y="204" width="172" height="70" rx="6" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="422" y="221" font-size="9.5" font-weight="700" fill="#6d28d9">call_matches[]</text>
+      <text x="422" y="236" font-size="9" fill="#5b21b6">call.fn → is_member=False</text>
+      <text x="422" y="249" font-size="9" fill="#5b21b6">call.attr → is_member=True</text>
+      <text x="422" y="262" font-size="9" fill="#5b21b6">plus optional call.recv</text>
+
+      <rect x="590" y="204" width="152" height="70" rx="6" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="604" y="221" font-size="9.5" font-weight="700" fill="#6d28d9">inherit_nodes[]</text>
+      <text x="604" y="236" font-size="9" fill="#5b21b6">extends the list —</text>
+      <text x="604" y="249" font-size="9" fill="#5b21b6">multiplicity is real</text>
+
+      <rect x="752" y="204" width="164" height="70" rx="6" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+      <text x="766" y="221" font-size="9.5" font-weight="700" fill="#b45309">binding_matches[]</text>
+      <text x="766" y="236" font-size="9" fill="#92400e">(name, type, receiver,</text>
+      <text x="766" y="249" font-size="9" fill="#92400e">statement, is_param)</text>
+      <text x="766" y="262" font-size="9" fill="#92400e">bind.param wins over bind.name</text>
+
+      <text x="44" y="284" font-size="9.5" fill="#6d28d9">Deliberately no early return when no declarations were found — a file can contain imports and calls without declaring anything (<tspan font-family="ui-monospace,monospace">import ujson as json</tspan> alone).</text>
+
+      <path d="M480,286 L480,300" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#q1)"/>
+
+      <!-- 4 containment -->
+      <rect x="24" y="302" width="912" height="112" rx="8" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="44" y="322" font-size="11" font-weight="700" fill="#6d28d9">4 · build the containment tree, then qualified names</text>
+      <rect x="44" y="332" width="400" height="70" rx="6" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="58" y="349" font-size="9.5" fill="#5b21b6">ordered = sorted(declarations, key=(start_byte, −end_byte))</text>
+      <text x="58" y="364" font-size="9.5" fill="#5b21b6">ordered.append((root_node, MODULE, module_name)); re-sort</text>
+      <text x="58" y="379" font-size="9.5" fill="#5b21b6">starts = [n.start_byte for n in ordered]  ← reused by bisect later</text>
+      <text x="58" y="394" font-size="9.5" fill="#0f766e">stack walk: pop while top does not contain → parent_of[node.id]</text>
+
+      <rect x="456" y="332" width="460" height="70" rx="6" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="470" y="349" font-size="9.5" fill="#5b21b6">for each non-root node:</text>
+      <text x="470" y="364" font-size="9.5" fill="#5b21b6">parent is root or None → qname = "module:Name", parent = module</text>
+      <text x="470" y="379" font-size="9.5" fill="#5b21b6">else → qname = "parent.qname.Name"</text>
+      <text x="470" y="394" font-size="9.5" font-weight="700" fill="#b45309">then reclassify: FUNCTION inside CLASS/INTERFACE/ENUM → METHOD</text>
+
+      <path d="M480,414 L480,428" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#q1)"/>
+
+      <!-- 5 enclosing -->
+      <rect x="24" y="430" width="912" height="70" rx="8" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="44" y="450" font-size="11" font-weight="700" fill="#0f766e">5 · the enclosing() lookup — one closure used by every later phase</text>
+      <text x="44" y="468" font-size="10" fill="#0f766e">index = bisect_right(starts, start_byte) − 1, then walk backwards until a node's span contains the range.</text>
+      <text x="44" y="486" font-size="10" fill="#0f766e">Falls back to the module symbol, so nothing is ever orphaned. O(log n) to start, then a short backward scan.</text>
+
+      <path d="M480,500 L480,514" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#q1)"/>
+
+      <!-- 6-10 -->
+      <rect x="24" y="516" width="912" height="176" rx="8" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="44" y="536" font-size="11" font-weight="700" fill="#6d28d9">6–10 · materialise the facts, each with its own guard</text>
+
+      <rect x="44" y="546" width="176" height="134" rx="6" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="58" y="563" font-size="9.5" font-weight="700" fill="#6d28d9">imports</text>
+      <text x="58" y="578" font-size="9" fill="#5b21b6">_statement_ancestor() walks</text>
+      <text x="58" y="590" font-size="9" fill="#5b21b6">up to the node whose parent</text>
+      <text x="58" y="602" font-size="9" fill="#5b21b6">is a declaration body or root</text>
+      <text x="58" y="614" font-size="9" fill="#5b21b6">— that is the import statement.</text>
+      <text x="58" y="630" font-size="9" fill="#b45309">Group by statement id, then</text>
+      <text x="58" y="642" font-size="9" fill="#b45309">merge module/names/alias.</text>
+      <text x="58" y="658" font-size="9" fill="#0f766e">No module + names → promote</text>
+      <text x="58" y="670" font-size="9" fill="#0f766e">names[0] ("import os as o")</text>
+
+      <rect x="230" y="546" width="176" height="134" rx="6" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="244" y="563" font-size="9.5" font-weight="700" fill="#6d28d9">calls</text>
+      <text x="244" y="578" font-size="9" fill="#5b21b6">callee must pass</text>
+      <text x="244" y="590" font-size="9" fill="#5b21b6">looks_like_identifier()</text>
+      <text x="244" y="608" font-size="9" fill="#b45309">receiver that is an</text>
+      <text x="244" y="620" font-size="9" fill="#b45309">EXPRESSION (foo().bar,</text>
+      <text x="244" y="632" font-size="9" fill="#b45309">arr[0].baz) → dropped,</text>
+      <text x="244" y="644" font-size="9" fill="#b45309">demoted to a plain call</text>
+      <text x="244" y="662" font-size="9" fill="#0f766e">dedupe key =</text>
+      <text x="244" y="674" font-size="9" fill="#0f766e">(callee, start_byte)</text>
+
+      <rect x="416" y="546" width="176" height="134" rx="6" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="430" y="563" font-size="9.5" font-weight="700" fill="#6d28d9">inherits</text>
+      <text x="430" y="578" font-size="9" fill="#5b21b6">same identifier guard,</text>
+      <text x="430" y="590" font-size="9" fill="#5b21b6">same dedupe pattern</text>
+      <text x="430" y="612" font-size="9" fill="#5b21b6">owner via enclosing()</text>
+      <text x="430" y="634" font-size="9" fill="#0f766e">No resolution here —</text>
+      <text x="430" y="646" font-size="9" fill="#0f766e">base_name stays raw text</text>
+
+      <rect x="602" y="546" width="314" height="134" rx="6" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+      <text x="616" y="563" font-size="9.5" font-weight="700" fill="#b45309">bindings — scope classification</text>
+      <text x="616" y="580" font-size="9" fill="#92400e">type_node missing → skip</text>
+      <text x="616" y="592" font-size="9" fill="#92400e">type_name must look like an identifier</text>
+      <text x="616" y="604" font-size="9" fill="#92400e">(<tspan font-family="ui-monospace,monospace">Optional[Repo]</tspan> → skipped, not stored)</text>
+      <text x="616" y="622" font-size="9" fill="#b45309">is_param → PARAMETER</text>
+      <text x="616" y="634" font-size="9" fill="#b45309">receiver None → LOCAL</text>
+      <text x="616" y="646" font-size="9" fill="#b45309">receiver ∈ INSTANCE_RECEIVER_TOKENS → INSTANCE</text>
+      <text x="616" y="658" font-size="9" font-weight="700" fill="#b91c1c">other receiver → DROPPED (other.field = Service())</text>
+      <text x="616" y="674" font-size="9" fill="#7f1d1d">filing it here would attribute someone else's type to our class</text>
+    </svg>
+    </div>
+
+    <div class="note key">
+      <span class="lbl">What the binding phase deliberately does <em>not</em> do</span>
+      <strong>No deduplication.</strong> Rebinding is real — <code>x = A(); x = B()</code> genuinely binds <code>x</code> twice, and collapsing it would move the
+      resolver's "last write wins" decision into the extractor.<br>
+      <strong>No resolution.</strong> <code>type_name</code> stays the raw text the source used.<br>
+      <strong>But it does sort.</strong> <code>facts.bindings.sort(key=lambda b: (b.span, str(b.scope), b.bound_name))</code> — so "last write in source order wins"
+      is a property of the source, not of the order the query engine happened to match in.
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="irb">14. <span class="mono">offline/ir_builder.py</span></h2>
+
+<div class="file">
+  <div class="hd">
+    <span class="tag t3">tier 3</span>
+    <span class="path">maat/offline/ir_builder.py</span>
+    <span class="role">Stage 5 — facts become identified entities</span>
+    <span class="loc">483 lines · 9 functions</span>
+  </div>
+  <div class="bd">
+    <p>Where identity is created. Three things happen here that happen nowhere else — and each is a decision.</p>
+
+    <div class="diagram">
+    <svg viewBox="0 0 960 560" role="img" aria-label="build_file_ir flow">
+      <defs>
+        <marker id="b1" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+          <path d="M0,0 L7,3.2 L0,6.4 z" fill="#7c3aed"/>
+        </marker>
+      </defs>
+
+      <rect x="330" y="16" width="300" height="32" rx="16" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="2"/>
+      <text x="480" y="37" font-size="11.5" font-weight="700" fill="#6d28d9" text-anchor="middle">build_file_ir(facts, record, source, version)</text>
+
+      <path d="M480,48 L480,62" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#b1)"/>
+      <polygon points="480,64 560,80 480,96 400,80" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="480" y="84" font-size="10" fill="#0f172a" text-anchor="middle">facts.symbols empty?</text>
+      <text x="580" y="84" font-size="9.5" fill="#b45309">yes → return empty FileIR</text>
+
+      <path d="M480,96 L480,110" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#b1)"/>
+
+      <!-- ID assignment -->
+      <rect x="24" y="112" width="912" height="170" rx="10" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="44" y="136" font-family="ui-monospace,monospace" font-size="12" font-weight="700" fill="#b91c1c">_assign_symbol_ids(facts, file_path) — the collision ladder</text>
+
+      <rect x="48" y="150" width="260" height="52" rx="6" fill="#fff" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="62" y="168" font-size="10" font-weight="700" fill="#991b1b">1 · group by (type, qname)</text>
+      <text x="62" y="184" font-size="9.5" fill="#7f1d1d">keyed by id(fact) — two facts can</text>
+      <text x="62" y="196" font-size="9.5" fill="#7f1d1d">share a qname, so name cannot be the key</text>
+
+      <path d="M308,176 L324,176" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#b1)"/>
+      <polygon points="400,152 490,176 400,200 310,176" fill="#fff" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="400" y="180" font-size="10" fill="#0f172a" text-anchor="middle">len(group) == 1?</text>
+      <text x="512" y="172" font-size="9.5" fill="#0f766e">yes → symbol_id(path, type, qname)</text>
+      <text x="512" y="185" font-size="9.5" fill="#64748b">the common case — stays stable</text>
+
+      <path d="M400,200 L400,214" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#b1)"/>
+      <rect x="48" y="216" width="540" height="54" rx="6" fill="#fff" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="62" y="234" font-size="10" font-weight="700" fill="#b45309">2 · overloads → INFO diagnostic + signature digest suffix</text>
+      <text x="62" y="250" font-size="9.5" fill="#92400e">for fact in sorted(group, key=span.start_line): suffix = sha1(signature)[:6] → qname + "#" + suffix</text>
+      <text x="62" y="264" font-size="9.5" fill="#7f1d1d">A line number in EVERY id would make every symbol below an inserted line change identity. So disambiguate only where it is needed.</text>
+
+      <rect x="604" y="216" width="312" height="54" rx="6" fill="#fff" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="618" y="234" font-size="10" font-weight="700" fill="#b91c1c">3 · final ordinal guard</text>
+      <text x="618" y="250" font-size="9.5" fill="#7f1d1d">if two facts still hash identically</text>
+      <text x="618" y="264" font-size="9.5" fill="#7f1d1d">(identical overloads) → append "~n"</text>
+
+      <path d="M480,282 L480,296" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#b1)"/>
+
+      <!-- symbols -->
+      <rect x="24" y="298" width="452" height="112" rx="8" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="44" y="318" font-size="11" font-weight="700" fill="#6d28d9">symbols + evidence + chunks</text>
+      <text x="44" y="336" font-size="10" fill="#334155">text = _slice_lines(source, span) — whole lines, never byte offsets</text>
+      <text x="44" y="352" font-size="10" fill="#334155">symbol.content_hash = sha256(text)</text>
+      <text x="44" y="370" font-size="10" fill="#b45309">symbol.problems() non-empty → REJECT with an ERROR diagnostic, continue</text>
+      <text x="44" y="386" font-size="10" fill="#0f766e">accepted → append Symbol + Evidence + a chunk (if text non-empty)</text>
+      <text x="44" y="402" font-size="10" fill="#64748b">by_qualified_name.setdefault(qname, id) — first wins, feeds CONTAINS targets</text>
+
+      <rect x="492" y="298" width="444" height="112" rx="8" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="512" y="318" font-size="11" font-weight="700" fill="#0f766e">_slice_lines — why whole lines</text>
+      <text x="512" y="336" font-size="10" fill="#0f766e">SourceSpan stores line/column, not byte offsets — byte offsets are</text>
+      <text x="512" y="351" font-size="10" fill="#0f766e">meaningless once a file is read as text.</text>
+      <text x="512" y="369" font-size="10" fill="#b45309">Column slicing would have to reconcile tree-sitter's BYTE columns</text>
+      <text x="512" y="384" font-size="10" fill="#b45309">with Python's CHARACTER indices — which diverge on any non-ASCII file.</text>
+      <text x="512" y="400" font-size="10" fill="#64748b">Whole-line slicing sidesteps that and is what a reader wants to see.</text>
+
+      <path d="M480,410 L480,424" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#b1)"/>
+
+      <!-- relationships -->
+      <rect x="24" y="426" width="912" height="126" rx="10" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+      <text x="44" y="450" font-size="12" font-weight="700" fill="#b45309">the four relationship families — and the M1 split</text>
+
+      <rect x="48" y="462" width="212" height="78" rx="6" fill="#f0fdfa" stroke="#5eead4" stroke-width="2"/>
+      <text x="62" y="480" font-size="10.5" font-weight="700" fill="#0f766e">CONTAINS</text>
+      <text x="62" y="497" font-size="9.5" fill="#0f766e">RESOLVED_EXACT · 1.0</text>
+      <text x="62" y="512" font-size="9.5" fill="#0f766e">target = real symbol id</text>
+      <text x="62" y="530" font-size="9" fill="#0d9488">both endpoints from one parse</text>
+
+      <rect x="270" y="462" width="212" height="78" rx="6" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="284" y="480" font-size="10.5" font-weight="700" fill="#b45309">IMPORTS</text>
+      <text x="284" y="497" font-size="9.5" fill="#92400e">UNRESOLVED · 0.0</text>
+      <text x="284" y="512" font-size="9.5" fill="#92400e">unresolved:module:&lt;path&gt;</text>
+      <text x="284" y="530" font-size="9" fill="#92400e">target_name = module</text>
+
+      <rect x="492" y="462" width="212" height="78" rx="6" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="506" y="480" font-size="10.5" font-weight="700" fill="#b45309">INHERITS</text>
+      <text x="506" y="497" font-size="9.5" fill="#92400e">UNRESOLVED · 0.0</text>
+      <text x="506" y="512" font-size="9.5" fill="#92400e">unresolved:type:&lt;base&gt;</text>
+      <text x="506" y="530" font-size="9" fill="#92400e">target_name = base_name</text>
+
+      <rect x="714" y="462" width="198" height="78" rx="6" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="728" y="480" font-size="10.5" font-weight="700" fill="#b45309">CALLS</text>
+      <text x="728" y="497" font-size="9.5" fill="#92400e">UNRESOLVED · 0.0</text>
+      <text x="728" y="512" font-size="9.5" fill="#92400e">unresolved:call:&lt;text&gt;</text>
+      <text x="728" y="530" font-size="9" fill="#92400e">target_name = raw dotted text</text>
+    </svg>
+    <p class="cap">The prefix differs per family (<code>module:</code> / <code>type:</code> / <code>call:</code>) but the shape is identical — an honest placeholder.</p>
+    </div>
+
+    <div class="note key">
+      <span class="lbl">Why <code>target_name</code> is passed to <code>_relationship()</code> as the ID key</span>
+      <code>idgen.relationship_id(source_id, type, target_name or target_symbol_id, line, col)</code><br>
+      The ID keys on the <strong>raw observed text</strong>, not the resolved target. That is what will let M2 resolve an edge without renumbering it — which is why
+      <strong>M2 must never clear <code>target_name</code></strong>. Clearing it would make every resolved edge look like a brand-new edge to the change detector.
+    </div>
+
+    <h4>Chunk emission</h4>
+    <table>
+      <tr><th>Chunk</th><th>Emitted when</th><th>Why</th></tr>
+      <tr><td>one per symbol</td><td><code>text</code> is non-empty</td><td><code>chunk_type</code> is the lowercased symbol type (<code>"class"</code>, <code>"method"</code>…).</td></tr>
+      <tr><td><code>imports</code></td><td><strong>always</strong></td><td>"this module imports nothing" is itself a useful retrieval result. Its absence would be indistinguishable from "we failed to look" — so it renders <code>(no imports)</code>.</td></tr>
+      <tr><td><code>parse_error</code></td><td>only for degraded files</td><td>Makes the reason a file is incomplete retrievable alongside the code that did parse.</td></tr>
+    </table>
+    <p>Token counts use <code>CHARS_PER_TOKEN = 4</code> and <code>max(1, len//4)</code>. Deliberately crude — §22 AC6 needs <em>something</em> to enforce, and a real tokeniser would tie the model to one provider.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="pipeline">15. <span class="mono">offline/pipeline.py</span></h2>
+
+<div class="file">
+  <div class="hd">
+    <span class="tag orch">orchestration</span>
+    <span class="path">maat/offline/pipeline.py</span>
+    <span class="role">owns the version and the reuse decision</span>
+    <span class="loc">579 lines · 3 dataclasses · 6 functions</span>
+  </div>
+  <div class="bd">
+    <p>Orchestrates all five stages and owns the two things no individual stage can: the model version, and what to reuse.</p>
+
+    <div class="diagram">
+    <svg viewBox="0 0 960 660" role="img" aria-label="index() activity diagram">
+      <defs>
+        <marker id="pp1" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+          <path d="M0,0 L7,3.2 L0,6.4 z" fill="#e11d48"/>
+        </marker>
+      </defs>
+
+      <rect x="24" y="16" width="440" height="80" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="44" y="36" font-size="11" font-weight="700" fill="#334155">A · load previous state</text>
+      <text x="44" y="54" font-size="10" fill="#475569">previous_manifest = load_manifest(index/manifest.json)</text>
+      <text x="44" y="69" font-size="10" fill="#475569">previous_version = manifest_version(...)</text>
+      <text x="44" y="86" font-size="9.5" fill="#b45309">both defensive — a corrupt manifest returns None, never raises</text>
+
+      <rect x="496" y="16" width="440" height="80" rx="8" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="516" y="36" font-size="11" font-weight="700" fill="#0f766e">B · snapshot, then derive the version</text>
+      <text x="516" y="54" font-size="10" fill="#0f766e">snapshot = scan_repository(root, model_version="")</text>
+      <text x="516" y="69" font-size="10" fill="#0f766e">version_id = model_version_id(combine_hashes([r.content_hash …]))</text>
+      <text x="516" y="86" font-size="9.5" fill="#0d9488">then stamp it onto snapshot and every record — the version is derived FROM the scan</text>
+
+      <path d="M480,96 L480,110" stroke="#e11d48" stroke-width="1.5" marker-end="url(#pp1)"/>
+
+      <rect x="24" y="112" width="912" height="52" rx="8" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="44" y="132" font-size="11" font-weight="700" fill="#0f766e">C · change detection → scheduled = set(change_set.scheduled_for_parse)</text>
+      <text x="44" y="150" font-size="10" fill="#0d9488">scheduled = new ∪ changed ∪ renamed_new. Everything else is a reuse candidate.</text>
+
+      <path d="M480,164 L480,178" stroke="#e11d48" stroke-width="1.5" marker-end="url(#pp1)"/>
+
+      <rect x="24" y="180" width="912" height="72" rx="8" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="44" y="200" font-size="11" font-weight="700" fill="#6d28d9">D · load the previous model, bucket it by file</text>
+      <text x="44" y="218" font-size="10" fill="#5b21b6">previous_ir = load_previous_ir(index_path) if previous_manifest else None</text>
+      <text x="44" y="234" font-size="10" fill="#5b21b6">reusable = _group_by_file(previous_ir) → {path: {symbols, relationships, evidence, chunks, diagnostics}}</text>
+      <text x="44" y="248" font-size="9.5" fill="#b45309">_group_by_file maps file_id→path for symbols/evidence, and symbol_id→path for relationships/chunks</text>
+
+      <path d="M480,252 L480,266" stroke="#e11d48" stroke-width="1.5" marker-end="url(#pp1)"/>
+
+      <!-- the per-file loop -->
+      <rect x="24" y="268" width="912" height="268" rx="10" fill="#fff1f2" stroke="#fecdd3" stroke-width="2"/>
+      <text x="44" y="292" font-size="12" font-weight="700" fill="#be123c">E · for each record in snapshot.files — the three-way branch</text>
+
+      <rect x="48" y="304" width="380" height="30" rx="6" fill="#fff" stroke="#fecdd3" stroke-width="1.5"/>
+      <text x="62" y="323" font-size="10" fill="#0f172a">ir.files.append(record) — always, before any branch</text>
+
+      <path d="M238,334 L238,346" stroke="#e11d48" stroke-width="1.5" marker-end="url(#pp1)"/>
+      <polygon points="238,348 320,366 238,384 156,366" fill="#fff" stroke="#fecdd3" stroke-width="1.5"/>
+      <text x="238" y="370" font-size="9.5" fill="#0f172a" text-anchor="middle">record.is_source?</text>
+      <text x="140" y="370" font-size="9" fill="#b45309">no →</text>
+      <text x="120" y="384" font-size="9" fill="#b45309">files_unsupported++</text>
+      <text x="120" y="396" font-size="9" fill="#64748b">continue</text>
+
+      <path d="M238,384 L238,396" stroke="#e11d48" stroke-width="1.5" marker-end="url(#pp1)"/>
+
+      <rect x="48" y="400" width="270" height="58" rx="6" fill="#fff" stroke="#fecdd3" stroke-width="1.5"/>
+      <text x="62" y="418" font-size="10" font-weight="700" fill="#be123c">if path in scheduled</text>
+      <text x="62" y="434" font-size="9.5" fill="#334155">_parse_and_build()</text>
+      <text x="62" y="450" font-size="9" fill="#64748b">read → parse → extract → build_file_ir</text>
+
+      <rect x="334" y="400" width="270" height="58" rx="6" fill="#fff" stroke="#5eead4" stroke-width="1.5"/>
+      <text x="348" y="418" font-size="10" font-weight="700" fill="#0f766e">elif path in reusable</text>
+      <text x="348" y="434" font-size="9.5" fill="#334155">_reuse() → files_reused++</text>
+      <text x="348" y="450" font-size="9" fill="#64748b">carry forward + re-stamp version</text>
+
+      <rect x="620" y="400" width="292" height="58" rx="6" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="634" y="418" font-size="10" font-weight="700" fill="#b45309">else — nothing to reuse</text>
+      <text x="634" y="434" font-size="9.5" fill="#92400e">no query file → unsupported</text>
+      <text x="634" y="450" font-size="9.5" fill="#92400e">else → _parse_and_build() anyway</text>
+
+      <path d="M318,429 L330,429" stroke="#e11d48" stroke-width="1.5" marker-end="url(#pp1)"/>
+      <path d="M604,429 L616,429" stroke="#e11d48" stroke-width="1.5" marker-end="url(#pp1)"/>
+
+      <rect x="48" y="472" width="864" height="52" rx="6" fill="#fff" stroke="#fecdd3" stroke-width="1.5"/>
+      <text x="62" y="490" font-size="10" fill="#334155">_parse_and_build: read_bytes → OSError? mark FAILED + pipeline.unreadable diagnostic, return.</text>
+      <text x="62" y="506" font-size="10" fill="#334155">Otherwise: parse → record status/node_count/max_depth → extend ir.diagnostics → extract → build_file_ir → extend all five collections.</text>
+      <text x="62" y="520" font-size="9.5" fill="#b45309">Parser diagnostics must reach the model: §30 AC3 requires the error to be PERSISTED, not logged.</text>
+
+      <path d="M480,536 L480,550" stroke="#e11d48" stroke-width="1.5" marker-end="url(#pp1)"/>
+
+      <!-- finalise -->
+      <rect x="24" y="552" width="912" height="98" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="44" y="572" font-size="11" font-weight="700" fill="#334155">F · sort, validate, build the version, publish</text>
+      <text x="44" y="590" font-size="10" fill="#475569">_sort_ir(ir) — files by path · symbols by (qname, line, id) · relationships by (type, src, target, line, col) · evidence · chunks · diagnostics</text>
+      <text x="44" y="607" font-size="10" fill="#475569">validation = ir.problems() &nbsp;→&nbsp; ModelVersion(status = PUBLISHED if valid else FAILED, parent_id = previous_version)</text>
+      <rect x="44" y="616" width="864" height="26" rx="6" fill="#f0fdfa" stroke="#5eead4" stroke-width="2"/>
+      <text x="58" y="634" font-size="10" fill="#0f766e">if persist and result.is_valid: write_json(manifest) ; write_json(ir) — BOTH atomic, and only for a valid model</text>
+    </svg>
+    </div>
+
+    <div class="note key">
+      <span class="lbl">Why re-stamping carried entities is not a contradiction</span>
+      A symbol reused from V1 is re-emitted as belonging to V2. Its <em>identity</em> (the ID) deliberately excludes the version, so re-stamping does not change who it is.
+      But §19 AC3 requires every published entity to reference the same active version. Carrying V1 entities into a V2 model <strong>unmodified</strong> would produce exactly
+      the mixed-version state §19 AC1 forbids.
+    </div>
+
+    <div class="note">
+      <span class="lbl">The subtle part of <code>_reuse()</code></span>
+      It carries the previous <em>parse outcome</em> across, not just the entities. The fresh snapshot can only guess a provisional status for a source file — it does not parse anything.
+      Without this, an unchanged file that was <code>PARTIAL</code> or <code>FAILED</code> would silently be reported as <code>OK</code> on the next run, and the degradation would vanish from
+      <code>maat status</code> while the broken code was still there.
+    </div>
+
+    <div class="note risk">
+      <span class="lbl">A real defect on this path — <code>load_previous_ir</code> (line 129)</span>
+      Its docstring promises "a corrupt file is treated as absent, matching the manifest policy". That holds only for <strong>syntactically</strong> invalid JSON —
+      the guard wraps <code>json.load</code>, but <code>_ir_from_payload(payload)</code> at line 145 sits <em>outside</em> the <code>try</code>. Probed: a missing field raises
+      <code>KeyError</code>, an unknown enum value raises <code>ValueError</code>, a non-dict entity or wrong collection type raises <code>TypeError</code> — all of which propagate out of
+      <code>index()</code>. <code>{}</code> is silently accepted as an empty model. Contrast <code>load_manifest</code> (<code>changes.py:30</code>), which is defensive at every level.
+      The realistic trigger is schema drift across code versions — which is precisely what M2's schema changes will create.
+    </div>
+
+    <h4>Where M2 plugs in</h4>
+    <p>A resolution phase would sit between <code>_sort_ir(ir)</code> and <code>ir.problems()</code> — after the model is assembled and ordered, before validation gates publication. That placement
+    matters: validating a <em>resolved</em> model is what §14 asks for, and publishing only a validated one is what §19 AC2 asks for.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="scm">16. <span class="mono">queries/*.scm</span></h2>
+
+<div class="file">
+  <div class="hd">
+    <span class="tag t2">tier 2</span>
+    <span class="path">maat/offline/queries/</span>
+    <span class="role">declarative extraction — the extension point</span>
+    <span class="loc">18 files · 0 lines of Python</span>
+  </div>
+  <div class="bd">
+    <p>Adding a language means adding <strong>data</strong>, not code. The presence of a <code>.scm</code> file <em>is</em> the definition of extractability.</p>
+
+    <div class="diagram">
+    <svg viewBox="0 0 960 250" role="img" aria-label="Capture vocabulary">
+      <rect x="24" y="20" width="440" height="212" rx="10" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+      <text x="44" y="44" font-size="12" font-weight="700" fill="#b45309">The capture vocabulary</text>
+
+      <rect x="48" y="56" width="392" height="28" rx="5" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="62" y="75" font-size="10" fill="#0f172a"><tspan font-family="ui-monospace,monospace">@def.class|interface|enum|function|method|constructor|field|type|module</tspan></text>
+      <rect x="48" y="90" width="392" height="24" rx="5" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="62" y="107" font-size="10" fill="#0f172a"><tspan font-family="ui-monospace,monospace">@name.&lt;suffix&gt;</tspan> — pairs with @def.&lt;suffix&gt; in the same pattern</text>
+      <rect x="48" y="120" width="392" height="24" rx="5" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="62" y="137" font-size="10" fill="#0f172a"><tspan font-family="ui-monospace,monospace">@import.module · @import.name · @import.alias</tspan></text>
+      <rect x="48" y="150" width="392" height="24" rx="5" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="62" y="167" font-size="10" fill="#0f172a"><tspan font-family="ui-monospace,monospace">@call.fn · @call.attr · @call.recv</tspan></text>
+      <rect x="48" y="180" width="392" height="24" rx="5" fill="#fff" stroke="#fcd34d" stroke-width="1.5"/>
+      <text x="62" y="197" font-size="10" fill="#0f172a"><tspan font-family="ui-monospace,monospace">@inherit · @doc</tspan></text>
+      <rect x="48" y="210" width="392" height="20" rx="5" fill="#fffbeb" stroke="#fde68a" stroke-width="2"/>
+      <text x="62" y="224" font-size="10" fill="#b45309"><tspan font-family="ui-monospace,monospace">@bind.param · @bind.name · @bind.type · @bind.receiver · @bind.assign</tspan> (Stage 6)</text>
+
+      <rect x="484" y="20" width="452" height="212" rx="10" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="504" y="44" font-size="12" font-weight="700" fill="#6d28d9">python.scm — the reference implementation</text>
+
+      <rect x="504" y="56" width="412" height="82" rx="6" fill="#fff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="518" y="74" font-size="9.5" fill="#5b21b6">(class_definition</text>
+      <text x="518" y="88" font-size="9.5" fill="#5b21b6">  name: (identifier) @name.class) @def.class</text>
+      <text x="518" y="106" font-size="9" fill="#7c3aed">Both captures in ONE pattern — that is the pairing convention.</text>
+      <text x="518" y="122" font-size="9" fill="#64748b">6 definition patterns · 1 inheritance · 5 import · 2 call · 7 binding</text>
+
+      <rect x="504" y="148" width="412" height="66" rx="6" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+      <text x="518" y="166" font-size="10" font-weight="700" fill="#b45309">The !type negation</text>
+      <text x="518" y="182" font-size="9" fill="#92400e">Binding patterns use negated fields so they are mutually exclusive —</text>
+      <text x="518" y="195" font-size="9" fill="#92400e">an annotated assignment must produce ONE binding, not two.</text>
+      <text x="518" y="208" font-size="9" fill="#7f1d1d">Coverage: python 7 patterns · the other 17 files 0. That is the M2 gap.</text>
+    </svg>
+    </div>
+
+    <p>Query files are compiled once per language (<code>lru_cache(128)</code>) and cached as <code>ts.Query</code> objects. A compile failure becomes a <code>QueryUnavailableError</code>, which the extractor converts into an <code>extract.no_query</code> diagnostic rather than an exception.</p>
+
+    <div class="note risk">
+      <span class="lbl">The most expensive M1 lesson, and it is still the top M2 risk</span>
+      <strong>Never guess a grammar node name.</strong> A wrong node name fails <em>silently</em> — the pattern simply matches nothing and yields zero captures, which looks identical to
+      "this language has no such construct". Every new pattern must be written against <code>tools/probe_bindings.py</code> output for the actual grammar.
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="trace">17. End-to-end trace — one call edge, all five stages</h2>
+
+<p class="lede">Following <code>self.repository.save(payment)</code> in <code>services/payment_service.py</code> from bytes to an unresolved edge — the same trace M2 will have to resolve.</p>
+
+<div class="diagram">
+<svg viewBox="0 0 960 620" role="img" aria-label="End to end trace">
+  <defs>
+    <marker id="t1" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="#475569"/>
+    </marker>
+  </defs>
+
+  <rect x="24" y="16" width="912" height="70" rx="8" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="44" y="36" font-size="11" font-weight="700" fill="#0f766e">① snapshot.py — bytes</text>
+  <text x="44" y="54" font-size="10" fill="#0f766e">read_bytes() → 1 105 bytes · NUL absent · not generated · detect_language → "python" (is_code) · size &gt; 0</text>
+  <text x="44" y="72" font-size="10" fill="#0f766e">FileRecord(path="services/payment_service.py", content_hash="sha256:…", parse_status=OK <tspan font-style="italic">provisional</tspan>, file_kind=SOURCE)</text>
+
+  <path d="M480,86 L480,98" stroke="#475569" stroke-width="1.5" marker-end="url(#t1)"/>
+
+  <rect x="24" y="100" width="912" height="62" rx="8" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+  <text x="44" y="120" font-size="11" font-weight="700" fill="#b45309">② changes.py — no previous manifest, so every file is new</text>
+  <text x="44" y="138" font-size="10" fill="#92400e">previous is None → ChangeSet(new=[all 7 paths], changed=[], deleted=[], unchanged=[], renamed=[])</text>
+  <text x="44" y="155" font-size="10" fill="#92400e">scheduled_for_parse = all 7 → this file is in `scheduled`, so it will be parsed, not reused</text>
+
+  <path d="M480,162 L480,174" stroke="#475569" stroke-width="1.5" marker-end="url(#t1)"/>
+
+  <rect x="24" y="176" width="912" height="86" rx="8" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+  <text x="44" y="196" font-size="11" font-weight="700" fill="#b45309">③ parser.py — classification, not recovery</text>
+  <text x="44" y="214" font-size="10" fill="#92400e">source.strip() non-empty · _build_parser("python") succeeds (cached) · tree = parser.parse(source)</text>
+  <text x="44" y="231" font-size="10" fill="#92400e">_walk_iteratively(root) → node_count=143, max_depth=9, error_count=0, missing_count=0</text>
+  <text x="44" y="248" font-size="10" fill="#0f766e">error==0 and missing==0 → ParseOutcome(status=OK, diagnostics=[])</text>
+
+  <path d="M480,262 L480,274" stroke="#475569" stroke-width="1.5" marker-end="url(#t1)"/>
+
+  <rect x="24" y="276" width="912" height="126" rx="8" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="44" y="296" font-size="11" font-weight="700" fill="#6d28d9">④ query_extractor.py — the tree becomes facts</text>
+  <text x="44" y="314" font-size="10" fill="#5b21b6">module symbol emitted first: services.payment_service (span = whole file)</text>
+  <text x="44" y="331" font-size="10" fill="#5b21b6">query compiled for "python" · QueryCursor.matches() yields capture maps</text>
+  <text x="44" y="348" font-size="10" fill="#5b21b6">declarations → {PaymentService, process, validate} · imports → 2 · calls → 3 · bindings → 4</text>
+  <text x="44" y="365" font-size="10" fill="#5b21b6">containment stack → process.parent = PaymentService ; PaymentService.parent = module</text>
+  <text x="44" y="382" font-size="10" fill="#0f766e">CallFact(callee_name="save", receiver="self.repository", is_member_call=True, enclosing="services.payment_service:PaymentService.process")</text>
+  <text x="44" y="396" font-size="10" fill="#0f766e">BindingFact(bound_name="repository", type_name="PaymentRepository", scope=PARAMETER, enclosing="…:PaymentService.__init__")</text>
+
+  <path d="M480,402 L480,414" stroke="#475569" stroke-width="1.5" marker-end="url(#t1)"/>
+
+  <rect x="24" y="416" width="912" height="106" rx="8" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="44" y="436" font-size="11" font-weight="700" fill="#6d28d9">⑤ ir_builder.py — facts become entities</text>
+  <text x="44" y="454" font-size="10" fill="#5b21b6">_assign_symbol_ids → sym_… for each of the 4 symbols (no collisions here)</text>
+  <text x="44" y="471" font-size="10" fill="#5b21b6">call_fact.target_name = "self.repository.save" → unresolved_target_id("call:self.repository.save")</text>
+  <text x="44" y="488" font-size="10" fill="#0f766e">Relationship(id=rel_…, type=CALLS, resolution_status=UNRESOLVED, confidence=0.0, target_name="self.repository.save")</text>
+  <text x="44" y="505" font-size="10" fill="#b45309">Note: `bindings` are NOT read here — this is the gap M2 must close</text>
+  <text x="44" y="519" font-size="9.5" fill="#7c3aed">Evidence emitted eagerly · one chunk per symbol + an `imports` chunk for the module</text>
+
+  <path d="M480,522 L480,534" stroke="#475569" stroke-width="1.5" marker-end="url(#t1)"/>
+
+  <rect x="24" y="536" width="912" height="70" rx="8" fill="#fff1f2" stroke="#fecdd3" stroke-width="1.5"/>
+  <text x="44" y="556" font-size="11" font-weight="700" fill="#be123c">⑥ pipeline.py — assemble, sort, validate, publish</text>
+  <text x="44" y="574" font-size="10" fill="#be123c">merged into the repo-wide SemanticIR · _sort_ir · ir.problems() == [] · version PUBLISHED</text>
+  <text x="44" y="591" font-size="10" fill="#be123c">written atomically to .maat/manifest.json and .maat/ir.json</text>
+  <text x="44" y="604" font-size="9.5" fill="#9f1239">42 relationships total across 7 files — 12 CALLS, 19 CONTAINS, 11 IMPORTS. Only CONTAINS is resolved.</text>
+</svg>
+</div>
+
+<div class="note key">
+  <span class="lbl">Where M2 must intervene, in one sentence</span>
+  Between ⑤ and ⑥: <code>build_file_ir()</code> never reads <code>facts.bindings</code>, <code>SemanticIR</code> has no collection for them, and <code>_group_by_file()</code> does not bucket them.
+  So the <code>BindingFact</code> produced in ④ is silently dropped at the Tier 3 boundary — and the resolution ladder, which needs it, has nothing to read.
+</div>
+
+<footer>
+  <p><strong>Sources.</strong> All diagrams derived by reading the current source tree:
+  <span class="mono">maat/core/</span> (5 modules, 1 161 lines) and <span class="mono">maat/offline/</span> (9 modules, ~2 900 lines) plus 18 <span class="mono">.scm</span> query files.</p>
+  <p><strong>Verified figures</strong> are measured, not copied from docs: <span class="mono">demo_repo</span> = 7 files / 26 symbols / 42 relationships (12 CALLS, 19 CONTAINS, 11 IMPORTS) / 26 evidence / 34 chunks;
+  <span class="mono">edgecase_repo</span> = 142 scanned / 5 044 symbols / 5 398 relationships / 18 languages / 23 diagnostics; 137 tests passing.</p>
+  <p><strong>Companions.</strong> <span class="mono">docs/m1-tour.md</span> (fast tour) · <span class="mono">docs/walkthrough-offline-parser.md</span> (narrative) ·
+  <span class="mono">docs/test-acceptance-matrix.md</span> (tests → criteria) · <span class="mono">docs/acceptance-criteria-explained.md</span> (the criteria) ·
+  <span class="mono">docs/m2-briefing.md</span> (what to prepare for M2).</p>
+</footer>
+
+</div>
+</body>
+</html>
