@@ -1,13 +1,44 @@
-# Extraction queries
+# Adding a language
 
-One tree-sitter query per language: `<language>.scm`, where `<language>` is the
-grammar key in `maat/offline/languages.py` (e.g. `python.scm`, `cpp.scm`).
-`extractable_languages()` discovers these files from disk, so a language becomes
-extractable the moment its `.scm` lands here and stops being extractable when it
-is removed. Nothing else has to change.
+How to add or repair extraction support for a programming language. This is the
+most common contribution, and for an already-registered grammar it requires **no
+Python at all**.
 
-The queries only *capture* nodes. Turning captures into `Symbol` / `Relationship`
-objects is the consumer's job.
+## How it works
+
+Extraction lives in one tree-sitter query per language:
+
+```text
+maat/offline/queries/<grammar-key>.scm
+```
+
+`<grammar-key>` is the grammar name from `maat/offline/languages.py` (`python.scm`,
+`cpp.scm`, …). `extractable_languages()` derives the extractable set from the
+filesystem — it globs `*.scm` — so a language becomes extractable the moment its
+file lands and stops being extractable when the file is removed. Nothing else has
+to change, and no list needs updating.
+
+The queries only *capture* nodes. Turning captures into `Symbol` /
+`Relationship` objects is the consumer's job, in
+`maat/offline/extractors/query_extractor.py`.
+
+## The workflow
+
+1. **Register the grammar** — only if it is not already one of the 61 in
+   `maat/offline/languages.py`. Add a `LanguageSpec(key, display, extensions)`;
+   the key must be loadable by `tree-sitter-language-pack`. If the key is already
+   registered, skip this step entirely.
+2. **Write the query** — `maat/offline/queries/<key>.scm`.
+3. **Probe the real tree** — `python tools/dump_trees.py <language>` prints an
+   actual parse tree, so you write patterns against node names that exist rather
+   than names you expect them to have. This is the step that saves the most time.
+4. **Verify** — `python tools/verify_queries.py` compiles every query and asserts
+   the required captures fire. Exits `1` on failure. CI runs this.
+5. **Verify bindings** — `python tools/verify_bindings.py` reports per-language
+   `@bind.*` coverage and flags languages that have files but produce no bindings.
+
+> **A malformed query does not crash the pipeline.** It silently degrades
+> extraction, so a broken query ships as missing symbols. Step 4 is not optional.
 
 ## Capture vocabulary
 
@@ -39,6 +70,38 @@ objects is the consumer's job.
 | `@call.recv` | receiver expression of a member / method call |
 | `@call.attr` | member / method name of a member call |
 | `@doc` | documentation comment or docstring |
+| `@bind.assign` | a variable assignment (`name = value`) |
+| `@bind.name` | the bound name of an assignment or declaration |
+| `@bind.param` | a parameter declaration |
+| `@bind.receiver` | the receiver of a member access (`self`, `this`, `cls`) |
+| `@bind.type` | the declared type name of a binding |
+
+Captures beginning with `_` (for example `@_req`, `@_src`, `@_dot`) are internal
+predicate helpers. They exist only to constrain a pattern and are filtered out
+before extraction; they are not part of the vocabulary.
+
+### `@bind.*` — the binding family
+
+Bindings record **name → type** facts. They exist because member-call resolution is
+impossible without them: resolving `self.repository.save(...)` requires knowing
+that `repository` is a `PaymentRepository`.
+
+**This family is implemented for Python only.** `python.scm` carries the patterns;
+the other 17 extractable languages do not, which `tools/verify_bindings.py` reports
+as `NEEDS PATTERNS`. Adding them is the highest-value open contribution — see
+[`../ROADMAP.md`](../ROADMAP.md).
+
+```bash
+python tools/probe_bindings.py python    # dump the real subtree for the four binding shapes
+python tools/verify_bindings.py          # per-language coverage report
+```
+
+One subtlety worth knowing before writing patterns: an **instance** binding's
+`type_name` is frequently *another name* rather than a type. In
+`self.repository = repository` the binding is `repository → repository` with scope
+`INSTANCE`, so resolving it means following `INSTANCE → PARAMETER` one hop.
+Patterns that assume `type_name` is always a type produce bindings the resolver
+cannot use.
 
 ## The two-capture-per-pattern convention
 
@@ -144,11 +207,26 @@ Honest list of what these queries do **not** capture:
 
 ## Verifying
 
-`tools/verify_queries.py` parses the representative sample per language from
+Two tools, both of which CI runs.
+
+**`tools/verify_queries.py`** parses the representative sample per language from
 `tools/dump_trees.py`, compiles each `.scm`, runs `QueryCursor.matches()`, and
-asserts that a definition, a call and an import capture all fire (and that the
-two-capture convention holds). It exits non-zero if any language fails.
+asserts that a definition, a call and an import capture all fire — and that the
+two-capture convention holds. It exits non-zero if any language fails.
 
 ```bash
 python tools/verify_queries.py
 ```
+
+**`tools/verify_bindings.py`** runs the real extractor over a repository and
+reports per-language binding counts and scopes, flagging `<-- NEEDS PATTERNS` for
+any language that has files but produces no bindings.
+
+```bash
+python tools/verify_bindings.py
+python tools/verify_bindings.py tests/fixtures/demo_repo --examples 3
+```
+
+Because a broken query degrades silently rather than failing loudly, these two
+gates are the difference between "the language is supported" and "the language
+appears to be supported".
