@@ -4,8 +4,8 @@ Every value here is part of a persisted contract. Adding a member is a
 backward-compatible change; renaming or removing one is not, because stored
 model versions contain these literal strings.
 
-Spec references:
-    ParseStatus      -- Problem_doc.md section 10 (AC2, AC3, AC4, AC6) and section 30
+Spec references (section numbers refer to SPEC.md):
+    ParseStatus      -- section 10 (AC2, AC3, AC4, AC6) and section 30
     SymbolType       -- section 12 (Symbol.symbol_type)
     RelationshipType -- section 4.3 (observed relationships only)
     ResolutionStatus -- section 4.2 and section 13

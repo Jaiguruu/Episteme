@@ -1,744 +1,254 @@
 # Episteme
 
-### MAAT's Offline Knowledge Plane
+### MAAT's offline knowledge plane
 
-**Episteme** is the offline knowledge plane of **MAAT (Repository Intelligence Agent)**. It transforms a source repository into a **deterministic, queryable semantic model** without using an LLM, network access, or a database.
+**Episteme** turns a source repository into a **deterministic, queryable semantic
+model** — without an LLM, without network access, and without a database. It reads
+files, parses them with [Tree-sitter](https://tree-sitter.github.io/tree-sitter/),
+extracts language-neutral facts, and produces a versioned `SemanticIR`.
 
-It reads source files, parses them with [Tree-sitter](https://tree-sitter.github.io/tree-sitter/), extracts language-neutral semantic facts, and produces a versioned `SemanticIR`.
+It is the offline half of **MAAT** (Repository Intelligence Agent), and the
+substrate the online pipeline reasons over.
 
-> **M1 · Stages 0–5 of the MAAT roadmap**
-
----
-
-## Why Episteme?
-
-Repository intelligence starts with a reliable representation of the repository itself.
-
-Episteme provides the offline pipeline that turns:
+> **M1 · Stages 0–5** of the [MAAT roadmap](ROADMAP.md)
 
 ```text
-Source Repository
+Source repository
        │
        ▼
-   Snapshot
-       │
-       ▼
- Change Detection
-       │
-       ▼
- Tree-sitter Parsing
-       │
-       ▼
- Semantic Extraction
-       │
-       ▼
-    SemanticIR
-       │
-       ├── Graph
-       ├── FTS5
-       └── Vector Index
+   Snapshot ──► Change detection ──► Tree-sitter parsing
+                                            │
+                                            ▼
+                                   Semantic extraction
+                                            │
+                                            ▼
+                                      SemanticIR
+                                            │
+                            ┌───────────────┼───────────────┐
+                            ▼               ▼               ▼
+                          Graph           FTS5           Vectors
+                       (projections — M3, not built yet)
 ```
-
-The resulting `SemanticIR` becomes the **source of truth** for the online MAAT pipeline.
 
 ---
 
-## Quick Start
-
-### 1. Install dependencies
+## Quick start
 
 ```bash
-pip install tree-sitter tree-sitter-language-pack
+git clone https://github.com/Jaiguruu/Episteme.git
+cd Episteme
+pip install -e .
 ```
 
-### 2. Run the tests
+`tree-sitter` and `tree-sitter-language-pack` come with it — the pack supplies
+around 400 pre-compiled grammars, so there is no grammar build step.
 
 ```bash
+# 1. Run the test suite (~15 s)
 python tests/run_all.py
-```
 
-Expected:
-
-```text
-137 tests, all passing
-```
-
-### 3. Index a repository
-
-```bash
+# 2. Index a repository and print what came out
 python tools/demo_offline.py tests/fixtures/demo_repo
-```
 
-Or run the edge-case repository:
-
-```bash
+# 3. The polyglot edge-case repository — 18 grammars, deliberate malformed files
 python tools/demo_offline.py tests/fixtures/edgecase_repo
 ```
 
-### 4. Test incremental reindexing
-
-Touch a single file and reindex:
-
-```bash
-python tools/demo_offline.py \
-  tests/fixtures/demo_repo \
-  --touch services/payment_service.py
-```
-
-Unchanged files are reused instead of being parsed again.
-
----
-
-## Python API
+From Python:
 
 ```python
 from maat.offline import index_repository
 
-result = index_repository("path/to/repo")
+result = index_repository("path/to/repo")   # writes <repo>/.maat/{manifest,ir}.json
 
-print(result.version.id)
-
-print(
-    len(result.ir.symbols),
-    len(result.ir.relationships)
-)
-
-print(result.ir.problems())
+print(result.version.id)                     # mv_4c0e0541d4d748b2
+print(len(result.ir.symbols), len(result.ir.relationships))   # 26 42
+print(result.ir.problems())                  # [] means the model is valid
 ```
 
-Example:
-
-```text
-mv_9abbbfdfc700ea1e
-26 42
-[]
-```
-
-An empty `problems()` result means the generated semantic model passed structural and referential validation.
-
----
-
-# What Episteme Produces
-
-Episteme produces one canonical `SemanticIR`.
-
-| Component | Description |
-|---|---|
-| `files` | Scanned files, language, content hash, parse status |
-| `symbols` | Modules, classes, interfaces, enums, functions, methods, fields |
-| `relationships` | `CONTAINS`, `IMPORTS`, `CALLS`, `INHERITS` |
-| `evidence` | Source spans supporting extracted symbols |
-| `chunks` | Token-bounded source slices for downstream retrieval |
-| `diagnostics` | Parse and extraction failures with human-readable reasons |
-
-Artifacts are persisted under:
-
-```text
-<repository>/.maat/
-├── manifest.json
-└── ir.json
-```
-
-### `ir.json`
-
-The semantic model.
-
-It is **byte-for-byte reproducible** for identical source content.
-
-### `manifest.json`
-
-The incremental indexing baseline.
-
-It contains a scan timestamp, so unlike `ir.json`, it is intentionally **not deterministic**.
-
----
-
-# Architecture
-
-Episteme is organized into three tiers.
-
-```text
-┌─────────────────────────────────────────────────┐
-│ Tier 1 · Acquisition                            │
-│                                                 │
-│ languages.py   snapshot.py   changes.py         │
-│                                                 │
-│ Files on disk → Repository Snapshot             │
-└───────────────────────┬─────────────────────────┘
-                        │
-                        ▼
-┌─────────────────────────────────────────────────┐
-│ Tier 2 · Syntax                                 │
-│                                                 │
-│ parser.py       queries/*.scm                   │
-│                                                 │
-│ Repository files → Tree-sitter syntax           │
-└───────────────────────┬─────────────────────────┘
-                        │
-                        ▼
-┌─────────────────────────────────────────────────┐
-│ Tier 3 · Semantics                              │
-│                                                 │
-│ extractors/     ir_builder.py                   │
-│                                                 │
-│ Syntax → language-neutral semantic facts        │
-│       → SemanticIR                              │
-└─────────────────────────────────────────────────┘
-```
-
-## The Tier 2 → Tier 3 boundary
-
-This is one of the core architectural constraints:
-
-> **No language-specific syntax representation crosses into the semantic layer.**
-
-The syntax layer works with Tree-sitter nodes and `.scm` queries.
-
-The semantic layer works only with language-neutral facts:
-
-```text
-SymbolFact
-ImportFact
-CallFact
-InheritFact
-```
-
-This means the same extractor and IR builder can serve all supported languages while keeping Tree-sitter replaceable behind the parser boundary.
-
----
-
-# Language Support
-
-Episteme currently declares **61 languages**.
-
-| Category | Count | Behaviour |
-|---|---:|---|
-| Extractable | **18** | Parsing + symbols + imports + calls + inheritance + docstrings |
-| Parse-only | **39** | Parsed and reported, but no semantic extraction |
-| Data / config | **4** | Parsed but never treated as symbol sources |
-| **Total** | **61** | `len(LANGUAGE_SPECS)` |
-
-The 18 extractable languages correspond directly to the `.scm` query files under:
-
-```text
-maat/offline/queries/
-```
-
-Adding extraction support for a new language generally means adding its query file rather than modifying the extraction engine.
-
----
-
-# Grammar-Agnostic Extraction
-
-Different programming languages have wildly different AST structures.
-
-Episteme avoids encoding those differences throughout the semantic pipeline by using three mechanisms.
-
-## 1. Pair declarations with their names
-
-Queries capture both the declaration and its name:
-
-```text
-@def.class
-@name.class
-```
-
-The name is not assumed to be a direct child of the declaration.
-
-For example, languages may nest names under nodes such as:
-
-```text
-function_declarator
-field_identifier
-```
-
-The extractor therefore operates on the captured pair rather than assuming a universal AST shape.
-
----
-
-## 2. Infer containment from source spans
-
-A declaration belongs to the **innermost declaration whose byte range contains it**.
-
-Conceptually:
-
-```text
-Class
-├── Method
-│   ├── Call
-│   └── Call
-└── Method
-```
-
-Containment is derived from source spans rather than maintaining per-language lists of possible container node types.
-
----
-
-## 3. Reclassify declarations using context
-
-A function extracted from the syntax tree can be reclassified according to its enclosing semantic declaration.
-
-For example:
-
-```text
-function + enclosing class
-        ↓
-      METHOD
-```
-
-This keeps grammar-specific syntax concerns inside Tier 2.
-
----
-
-# Determinism
-
-Determinism is a first-class requirement.
-
-For unchanged repository content:
-
-```text
-Run 1 ──┐
-        ├── identical model_digest
-Run 2 ──┘
-```
-
-and:
-
-```text
-ir.json(run 1) == ir.json(run 2)
-```
-
-The pipeline enforces this through:
-
-- deterministic repository traversal
-- sorted `os.walk`
-- byte-level content hashing
-- canonical JSON serialization
-- sorted IR collections
-- no unordered sets in serialized state
-- deterministic IDs
-- final `_sort_ir` normalization
-- content-derived model versions
-
-### Important detail
-
-Model versions depend on **content hashes**, not the previous model version.
-
-Therefore:
-
-```text
-same repository content
-        ↓
-same model version
-```
-
-Reindexing an unchanged repository does not create a meaningless new version.
-
----
-
-# Incremental Indexing
-
-The manifest tracks repository state and allows the pipeline to distinguish:
-
-```text
-NEW
-MODIFIED
-DELETED
-RENAMED
-UNCHANGED
-```
-
-Rename detection is based on content hashes.
-
-A typical incremental run therefore looks like:
-
-```text
-Repository
-   │
-   ├── unchanged.py  ── reuse
-   ├── service.py    ── reparse
-   ├── deleted.py    ── remove
-   └── renamed.py    ── detect rename
-```
-
-Only affected files need to pass through the expensive parsing and extraction stages.
-
----
-
-# Failure Model
-
-Episteme follows a simple rule:
-
-> **Failure is data, not an exception.**
-
-Every scanned file receives a status:
-
-```text
-OK
-PARTIAL
-FAILED
-EMPTY
-UNSUPPORTED
-```
-
-Degraded files also carry a human-readable diagnostic.
-
-A malformed file should not make the entire repository unusable.
-
-```text
-                    Repository
-                        │
-          ┌─────────────┴─────────────┐
-          │                           │
-      Valid files                 Bad file
-          │                           │
-          ▼                           ▼
-    Normal IR                    Diagnostic
-          │                           │
-          └─────────────┬─────────────┘
-                        ▼
-                 Valid repository model
-```
-
----
-
-# Validation
-
-The generated IR can validate itself:
+Pass `persist=False` to index without writing anything. That is the right choice
+in tests and experiments, because it cannot dirty a fixture:
 
 ```python
-problems = result.ir.problems()
+result = index_repository("path/to/repo", persist=False)
 ```
 
-An empty list means the model contains no detected structural or referential problems.
-
-This allows downstream systems to reject or flag invalid models before projecting them into:
-
-- graph storage
-- full-text indexes
-- vector indexes
-- retrieval systems
+> **`pip install -e .` is the supported path.** If you have several interpreters on
+> `PATH`, confirm the one you are using has tree-sitter — `maat.offline` imports it
+> at module scope, so nothing runs without it.
 
 ---
 
-# Verification
+## What it produces
 
-The current test suite contains:
+One canonical `SemanticIR` — the source of truth from which the graph, FTS5 and
+vector indexes are later projected:
 
-```text
-137 tests
-```
+| Component | Contents |
+|---|---|
+| `files` | every scanned file: language, content hash, parse status |
+| `symbols` | modules, classes, interfaces, enums, functions, methods, fields |
+| `relationships` | `CONTAINS`, `IMPORTS`, `CALLS`, `INHERITS` |
+| `evidence` | the source span backing each symbol |
+| `chunks` | token-bounded slices for downstream retrieval |
+| `diagnostics` | parse and extraction failures, with human-readable reasons |
 
-All tests pass using only Python's standard `unittest` framework.
+Persisted to `<repository>/.maat/`:
 
-```bash
-python tests/run_all.py
-```
-
-### Demo repository
-
-| Metric | Result |
-|---|---:|
-| Files | 7 |
-| Symbols | 26 |
-| Relationships | 42 |
-| Index time | ~111 ms |
-
-### Edge-case repository
-
-| Metric | Result |
-|---|---:|
-| Files scanned | 142 / 156 |
-| Symbols | 5,044 |
-| Relationships | 5,398 |
-| Index time | ~497 ms |
-
-The edge-case repository exercises:
-
-- all 18 extractable grammars
-- malformed source files
-- BOM and CRLF line endings
-- empty files
-- large single files (~197 KB)
-- deep nesting beyond Python's recursion limit
-- duplicate symbol names
-- cyclic imports
-- star imports
-- Unicode identifiers
-- binary payloads
-
-Result:
-
-```text
-OK           128
-PARTIAL        3
-FAILED         6
-EMPTY          3
-UNSUPPORTED    2
-```
-
-The degraded files are isolated and reported individually. The remaining repository remains queryable.
+| File | Property |
+|---|---|
+| `ir.json` | the model — **byte-for-byte reproducible** for identical content |
+| `manifest.json` | the change-detection baseline — carries a scan timestamp, so deliberately *not* reproducible |
 
 ---
 
-# Project Structure
+## Design in one page
+
+Full detail, including the module map and the invariants a change must not break,
+is in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+### Three tiers, and one rule between them
 
 ```text
-maat/
-├── core/
-│   ├── contracts
-│   ├── enums
-│   ├── spans
-│   ├── deterministic IDs
-│   └── serialization
-│
-└── offline/
-    ├── languages.py
-    ├── snapshot.py
-    ├── changes.py
-    ├── parser.py
-    │
-    ├── queries/
-    │   └── *.scm
-    │
-    ├── extractors/
-    │
-    ├── ir_builder.py
-    └── pipeline.py
+Tier 1  acquisition   languages.py  snapshot.py  changes.py     files on disk
+Tier 2  syntax        parser.py     queries/*.scm               tree-sitter — disposable
+Tier 3  semantics     extractors/   ir_builder.py              language-neutral
+```
 
-tests/
-├── fixtures/
-├── run_all.py
-└── ...
+**The rule:** no language-specific shape may cross the Tier 2 → Tier 3 boundary.
+Tier 2 deals in tree-sitter node types and `.scm` queries; Tier 3 sees only
+`SymbolFact`, `ImportFact`, `CallFact`, `InheritFact` and `BindingFact`.
 
-tools/
-├── demo_offline.py
-├── tree dumper
-└── edge-case generator
+That is what lets one extractor and one IR builder serve all 18 languages — and
+what makes the parser replaceable without touching the model.
 
-docs/
-├── implementation-plan-resolution.md
-├── implementation-plan-offline-parser.md
-└── walkthrough-offline-parser.md
+### Language support
+
+| Tier | Count | What works |
+|---|---:|---|
+| **Extractable** | **18** | Full parse + symbols, imports, calls, inheritance, docstrings |
+| Parse-only | 39 | Parsed and reported, but no symbols — an honest `extract.no_query` diagnostic |
+| Data / config | 4 | `.ini`, `.gitignore`, `go.mod`, `requirements.txt` — parsed, never symbol sources |
+| **Total registered** | **61** | `len(LANGUAGE_SPECS)` |
+
+Extractable means exactly "has a file in `maat/offline/queries/`" — the set is
+derived from the filesystem, never hard-coded. Dropping in a new `.scm` upgrades a
+language with **no code change**. See
+[`docs/adding-a-language.md`](docs/adding-a-language.md).
+
+### Three mechanisms that make one engine serve 18 grammars
+
+Grammars agree on almost nothing, so the design avoids per-language special cases
+by exploiting three properties instead:
+
+1. **Pairing by match.** Each pattern captures a declaration *and* its name
+   (`@def.class` + `@name.class`) in one pattern, because the name node's parent
+   is frequently not the declaration node — C nests names under
+   `function_declarator`, Go uses a separate `field_identifier`.
+2. **Nesting by span containment.** A declaration's parent is the innermost
+   declaration whose byte range contains it. No per-language container lists.
+3. **Reclassification by context.** A function whose enclosing declaration is a
+   class, interface or enum becomes a `METHOD`.
+
+### Determinism
+
+Two runs over unchanged content produce an identical `model_digest` and an
+identical `ir.json`. Enforced by sorted traversal, byte-level content hashing,
+canonical JSON, a final sort over every collection, and — critically — a model
+version computed from **content hashes only**, never from the parent version.
+Reindexing unchanged content does not mint a new version.
+
+### Failure is data, never an exception
+
+Nothing in the offline path raises on bad input. Each file lands on a status
+ladder — `OK` / `PARTIAL` / `FAILED` / `EMPTY` / `UNSUPPORTED` — and every
+degraded file carries a human-readable reason. A file that fails to parse is
+isolated: the rest of the repository stays queryable.
+
+---
+
+## Verified behaviour
+
+**137 tests, all passing** (`python tests/run_all.py`, ~15 s).
+
+| Repository | Scanned | Symbols | Relationships | Model version |
+|---|---:|---:|---:|---|
+| `tests/fixtures/demo_repo` | 7 files | 26 | 42 | `mv_4c0e0541d4d748b2` |
+| `tests/fixtures/edgecase_repo` | 142 of 156 | 5,044 | 5,398 | `mv_72dfca7b6037c080` |
+
+The edge-case repository exercises 18 grammars and deliberately includes malformed
+files, BOM and CRLF line endings, empty files, a 197 KB single file, nesting past
+Python's recursion limit, duplicate names, cyclic imports, star imports, unicode
+identifiers, and a binary payload:
+
+```text
+OK 128   PARTIAL 3   FAILED 6   EMPTY 3   UNSUPPORTED 2
+model is valid: no referential or structural problems
+```
+
+The 9 degraded files are isolated and named; the other 133 are unaffected.
+
+> **On timings.** Per-repository durations are not comparable across machines or
+> across cold and warm grammar caches — the edge-case figure in particular
+> includes first-run grammar loading for 18 languages. Treat any single-run
+> duration as indicative only.
+
+---
+
+## Project structure
+
+```text
+maat/core/          contracts, enums, spans, deterministic IDs, serialization
+maat/offline/
+  languages.py      path → grammar registry (61 languages)
+  snapshot.py       traversal, ignore rules, binary sniffing
+  changes.py        manifest diffing, content-hash rename detection
+  parser.py         tree-sitter behind a ParserBackend protocol
+  queries/          18 .scm extraction queries
+  extractors/       grammar-neutral facts
+  ir_builder.py     facts → SemanticIR
+  pipeline.py       orchestration, incremental reuse, atomic publication
+tests/              stdlib unittest — no pytest
+tools/              demo harness, tree dumper, query and binding verifiers
+docs/               contributor reference
 ```
 
 ---
 
-# M1 Scope
+## Documentation
 
-Episteme currently implements **Stages 0–5** of the MAAT roadmap:
-
-```text
-Stage 0  Repository snapshot
-Stage 1  Change detection
-Stage 2  Parsing
-Stage 3  Semantic extraction
-Stage 4  IR construction
-Stage 5  Deterministic publication
-```
-
-### Included
-
-- repository scanning
-- language detection
-- ignore handling
-- binary detection
-- content hashing
-- incremental change detection
-- content-hash rename detection
-- Tree-sitter parsing
-- semantic extraction
-- source evidence
-- retrieval chunks
-- diagnostics
-- deterministic IDs
-- deterministic IR serialization
-- atomic publication
-
-### Not included
-
-The following are intentionally outside M1:
-
-- reference resolution
-- symbol linking
-- ambiguity resolution
-- graph projection
-- FTS5 projection
-- vector indexing
-- retrieval
-- reasoning
-- MCP tools
-- online model orchestration
-
-All references are currently emitted as:
-
-```text
-UNRESOLVED
-```
-
-by design.
+| Document | For |
+|---|---|
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | how the system works, and why — read this first |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | setup, workflow, conventions, PR process |
+| [`ROADMAP.md`](ROADMAP.md) | current status, milestones, where to contribute |
+| [`SPEC.md`](SPEC.md) | the normative specification (25 stages, 131 criteria) |
+| [`docs/`](docs/README.md) | full index of the reference documentation |
 
 ---
 
-# Roadmap
+## Scope
 
-Episteme is the offline foundation for the remaining MAAT pipeline.
+M1 covers Stages 0–5: snapshot, change detection, parsing, extraction, and the
+semantic IR.
 
-```text
-M1  Stages 0–5
-    Snapshot → Parse → Extract → SemanticIR
-                       │
-                       ▼
-M2  Stages 6–8
-    Resolution → Validation → Canonical Store
-                       │
-                       ▼
-M3  Graph / FTS5 / Vector Projections
-                       │
-                       ▼
-M4  Retrieval
-                       │
-                       ▼
-M5  Reasoning
-                       │
-                       ▼
-M6  MCP / Agent Interface
-```
-
-The next planned milestone is **M2**, covering symbol/reference resolution, ambiguity handling, validation, and the canonical store.
-
-See:
-
-```text
-docs/implementation-plan-resolution.md
-```
-
-for the detailed M2 design.
+**Deliberately not included yet:** reference resolution (every reference is emitted
+as `UNRESOLVED` by design — M1 observes, it does not infer), the graph / FTS5 /
+vector projections, retrieval, reasoning, and the MCP tool layer. Those are M2–M6
+in [`ROADMAP.md`](ROADMAP.md).
 
 ---
 
-# Design Documentation
+## Contributing
 
-### Implementation Plan
+Contributions are welcome. [`CONTRIBUTING.md`](CONTRIBUTING.md) has the workflow
+and conventions, and [`ROADMAP.md`](ROADMAP.md) lists the highest-value gaps —
+adding `@bind.*` patterns for the 17 languages that lack them is the most
+self-contained place to start.
 
-`docs/implementation-plan-offline-parser.md`
+Participation is covered by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). For
+security issues, see [`SECURITY.md`](SECURITY.md).
 
-Covers:
+## License
 
-- architecture
-- data flow
-- error handling
-- determinism
-- design decisions
-- known limitations
-
-### Resolution Plan
-
-`docs/implementation-plan-resolution.md`
-
-Covers the planned M2 implementation:
-
-- resolution ladder
-- ambiguity handling
-- validation
-- canonical store
-- extractor extensions
-
-### Code Walkthrough
-
-`docs/walkthrough-offline-parser.md`
-
-Explains:
-
-- module responsibilities
-- file-to-IR execution flow
-- failure handling
-- implementation details
-- bugs discovered and fixed during development
-
----
-
-# Design Principles
-
-Episteme is built around a few constraints.
-
-### Deterministic
-
-Same source content should produce the same semantic model.
-
-### Language-neutral semantics
-
-Language-specific AST details stop at the syntax boundary.
-
-### Incremental
-
-Unchanged files should not be unnecessarily reparsed.
-
-### Evidence-backed
-
-Semantic facts retain source spans that explain where they came from.
-
-### Failure-isolated
-
-One broken file should not destroy the repository model.
-
-### Model-independent
-
-The offline knowledge plane does not depend on an LLM.
-
-### Projection-friendly
-
-`SemanticIR` is the canonical representation from which downstream indexes can be built.
-
----
-
-# Relationship to MAAT
-
-Episteme is **not the complete MAAT system**.
-
-It is the offline knowledge plane that creates the semantic substrate MAAT will reason over.
-
-```text
-                    MAAT
-                     │
-        ┌────────────┴────────────┐
-        │                         │
-   Offline Plane             Online Plane
-        │                         │
-   ┌────▼────┐              ┌─────▼─────┐
-   │ Episteme│              │ Retrieval │
-   └────┬────┘              │ Reasoning │
-        │                   │ MCP       │
-        ▼                   └───────────┘
-   SemanticIR
-        │
-   ┌────┼─────────┐
-   ▼    ▼         ▼
- Graph  FTS5    Vectors
-```
-
-The separation is intentional:
-
-**Episteme builds knowledge. MAAT uses that knowledge.**
-
----
-
-## Status
-
-**M1 · Offline Knowledge Plane**
-
-- [x] Repository snapshot
-- [x] Change detection
-- [x] Incremental reuse
-- [x] Rename detection
-- [x] Tree-sitter parsing
-- [x] 18 semantic extractors
-- [x] 61-language registry
-- [x] SemanticIR
-- [x] Evidence spans
-- [x] Diagnostics
-- [x] Deterministic serialization
-- [x] Atomic publication
-- [x] 137 tests passing
-
-**Next:** M2 reference resolution and canonical storage.
+[Apache-2.0](LICENSE).

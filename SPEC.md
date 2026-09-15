@@ -9,6 +9,95 @@
 
 ---
 
+## Reading this document
+
+This is the **normative specification** for MAAT. It describes the whole 25-stage
+system; only part of it is built. Where the spec and the code disagree, the code
+and the repository's own documentation win, and the divergence is a defect to be
+reported rather than silently resolved.
+
+**Implemented today:** Stages 0–5 (§7–§12) — the offline pipeline, shipped as
+**Episteme**. Everything from §13 onward is planned. See [`ROADMAP.md`](ROADMAP.md)
+for the milestone map.
+
+Acceptance criteria appear at four different layers, and conflating them is the
+main source of confusion: 83 numbered `### ACn` sections, 43 unnumbered bullets,
+5 named end-to-end scenarios (§32 `E001`–`E005`), and 51 summary statements across
+§33, §34, §40 and §41. [`docs/verification.md`](docs/verification.md) explains how
+each layer is discharged by the test suite.
+
+---
+
+## Contents
+
+**Foundations**
+
+| § | Section | Status |
+|---|---|---|
+| [1](#1-problem-statement) | Problem Statement | — |
+| [2](#2-goals) | Goals | — |
+| [3](#3-non-goals) | Non-Goals | — |
+| [4](#4-design-principles) | Design Principles | — |
+| [5](#5-high-level-architecture) | High-Level Architecture | — |
+| [6](#6-offline-pipeline) | Offline Pipeline | — |
+
+**Offline plane — Stages 0–12**
+
+| § | Stage | Status |
+|---|---|---|
+| [7](#7-stage-0-test-fixtures-and-contracts) | Stage 0 · Test Fixtures and Contracts | **built** |
+| [8](#8-stage-1-repository-snapshot) | Stage 1 · Repository Snapshot | **built** |
+| [9](#9-stage-2-incremental-change-detection) | Stage 2 · Incremental Change Detection | **built** |
+| [10](#10-stage-3-tree-sitter-parsing) | Stage 3 · Tree-sitter Parsing | **built** |
+| [11](#11-stage-4-language-extractors) | Stage 4 · Language Extractors | **built** |
+| [12](#12-stage-5-semantic-ir) | Stage 5 · Semantic IR | **built** |
+| [13](#13-stage-6-symbol-and-relationship-resolution) | Stage 6 · Symbol and Relationship Resolution | planned (M2) |
+| [14](#14-stage-7-relationship-validation) | Stage 7 · Relationship Validation | planned (M2) |
+| [15](#15-stage-8-canonical-semantic-model) | Stage 8 · Canonical Semantic Model | planned (M2) |
+| [16](#16-stage-9-graph-projection) | Stage 9 · Graph Projection | planned (M3) |
+| [17](#17-stage-10-fts5-projection) | Stage 10 · FTS5 Projection | planned (M3) |
+| [18](#18-stage-11-vector-projection) | Stage 11 · Vector Projection | planned (M3) |
+| [19](#19-stage-12-atomic-index-publication) | Stage 12 · Atomic Index Publication | partial (M1 publishes atomically) |
+
+**Online plane — Stages 13–20**
+
+| § | Stage |
+|---|---|
+| [20](#20-online-pipeline) | Online Pipeline |
+| [21](#21-stage-13-intent-classifier) | Stage 13 · Intent Classifier |
+| [22](#22-stage-14-retrieval-and-context-engine) | Stage 14 · Retrieval and Context Engine |
+| [23](#23-stage-15-deterministic-reasoning-engine) | Stage 15 · Deterministic Reasoning Engine |
+| [24](#24-stage-16-small-model-reasoning) | Stage 16 · Small-Model Reasoning |
+| [25](#25-stage-17-answer-validation) | Stage 17 · Answer Validation |
+| [26](#26-stage-18-model-router-and-escalation) | Stage 18 · Model Router and Escalation |
+| [27](#27-stage-19-mcp-tool-layer) | Stage 19 · MCP Tool Layer |
+| [28](#28-stage-20-react-agent) | Stage 20 · ReAct Agent |
+
+**Hardening and delivery — Stages 21–24**
+
+| § | Stage |
+|---|---|
+| [29](#29-stage-21-incremental-relationship-invalidation) | Stage 21 · Incremental Relationship Invalidation |
+| [30](#30-stage-22-fault-tolerance) | Stage 22 · Fault Tolerance |
+| [31](#31-stage-23-api--cli) | Stage 23 · API / CLI |
+| [32](#32-stage-24-end-to-end-integration) | Stage 24 · End-to-End Integration |
+
+**Summary layers**
+
+| § | Section |
+|---|---|
+| [33](#33-quality-gates) | Quality Gates |
+| [34](#34-critical-failure-conditions) | Critical Failure Conditions |
+| [35](#35-test-strategy) | Test Strategy |
+| [36](#36-required-edge-case-matrix) | Required Edge-Case Matrix |
+| [37](#37-implementation-order) | Implementation Order |
+| [38](#38-deliverable-matrix) | Deliverable Matrix |
+| [39](#39-final-demonstration) | Final Demonstration |
+| [40](#40-definition-of-done) | Definition of Done |
+| [41](#41-final-architectural-contract) | Final Architectural Contract |
+
+---
+
 # 1. Problem Statement
 
 Understanding a large software repository requires answering questions about its structure, behavior, dependencies, and architecture.

@@ -1,6 +1,6 @@
 """Payment domain model.
 
-Fixture file for the MAAT offline pipeline (Problem_doc.md section 7).
+Fixture file for the MAAT offline pipeline (spec section 7).
 """
 
 
