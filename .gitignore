@@ -1,0 +1,79 @@
+# ---------------------------------------------------------------------------
+# MAAT / Episteme
+# ---------------------------------------------------------------------------
+
+# Runtime index output. index_repository() writes <repo>/.maat/{manifest,ir}.json
+# into whatever repository it indexes, so this must be ignored globally.
+.maat/
+
+# Agent scratch memory. Never ships.
+.workbuddy-ai/
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+
+# Bytecode and caches. Deliberately UNANCHORED: __pycache__ sits next to every
+# package at every depth, so a leading "/" would miss all of them.
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build output and installed metadata. ROOT-ANCHORED ("/") on purpose: a bare
+# build/ or dist/ would also match tests/fixtures/edgecase_repo/build|dist,
+# which are committed test data.
+/build/
+/dist/
+/*.egg-info/
+/.eggs/
+
+# Test and lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# ---------------------------------------------------------------------------
+# Editors and OS
+# ---------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ---------------------------------------------------------------------------
+# Fixture carve-outs -- DO NOT REMOVE
+# ---------------------------------------------------------------------------
+# tests/fixtures/edgecase_repo/ deliberately commits a build/, dist/,
+# node_modules/ and __pycache__/ so that the scanner's exclusion rules can be
+# tested against them. Deleting these rules silently breaks the test suite.
+#
+# Two gitignore rules make the carve-out work:
+#   1. Patterns are evaluated in order and the LAST match wins, so every
+#      negation must come after the rule it overrides -- hence the bottom of
+#      the file.
+#   2. "It is not possible to re-include a file if a parent directory of that
+#      file is excluded." The directory is therefore re-included first, then
+#      the file inside it. Negating only the .pyc would do nothing, because git
+#      would never descend into the excluded __pycache__/.
+!tests/fixtures/edgecase_repo/__pycache__/
+!tests/fixtures/edgecase_repo/__pycache__/*.pyc
+
+# Redundant today, because the build/ and dist/ rules above are root-anchored.
+# Kept as a guard so that un-anchoring them cannot silently break the fixture.
+!tests/fixtures/edgecase_repo/build/
+!tests/fixtures/edgecase_repo/dist/
+!tests/fixtures/edgecase_repo/node_modules/

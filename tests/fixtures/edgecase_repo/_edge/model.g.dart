@@ -1,0 +1,2 @@
+// GENERATED CODE - DO NOT MODIFY
+class A {}
