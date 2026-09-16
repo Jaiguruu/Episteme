@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "maat-episteme"
+description = "Deterministic repository-intelligence pipeline: repository -> snapshot -> parse -> semantic IR."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Jaiguruu" }]
+keywords = [
+    "repository-intelligence",
+    "static-analysis",
+    "tree-sitter",
+    "code-analysis",
+    "semantic-ir",
+    "code-search",
+    "knowledge-graph",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Quality Assurance",
+    "Typing :: Typed",
+]
+dependencies = [
+    "tree-sitter>=0.23",
+    "tree-sitter-language-pack>=1.19",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+dev = ["build>=1.2", "twine>=5"]
+
+[project.urls]
+Homepage = "https://github.com/Jaiguruu/Episteme"
+Repository = "https://github.com/Jaiguruu/Episteme"
+Issues = "https://github.com/Jaiguruu/Episteme/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "maat.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["maat*"]
+exclude = ["tests*", "tools*", "docs*"]
+
+# The queries directory holds no __init__.py -- it is a data directory that
+# languages.py resolves relative to its own file. Without this line an
+# installed wheel ships zero .scm files and silently extracts nothing.
+[tool.setuptools.package-data]
+maat = ["offline/queries/*.scm"]
