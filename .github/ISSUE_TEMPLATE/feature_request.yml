@@ -1,0 +1,68 @@
+name: Feature or language request
+description: Propose new behaviour, a new language, or a change to an existing one.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, it is worth checking
+        [ROADMAP.md](https://github.com/Jaiguruu/Episteme/blob/main/ROADMAP.md) —
+        much of the planned work is already scoped there, and
+        [docs/decisions.md](https://github.com/Jaiguruu/Episteme/blob/main/docs/decisions.md)
+        may explain why the current behaviour is deliberate.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of change is this
+      options:
+        - Add extraction support for a language
+        - Fix or improve an existing language's query
+        - Add @bind.* binding patterns (member-call resolution)
+        - Improve the pipeline
+        - Add tests
+        - Documentation
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: Describe the problem, not the solution. What can you not do today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+      description: |
+        For a language request, name the grammar key and say whether it is
+        already one of the 61 registered in `maat/offline/languages.py`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: How this interacts with the existing design
+      description: |
+        Relevant constraints, from
+        [ARCHITECTURE.md §9](https://github.com/Jaiguruu/Episteme/blob/main/ARCHITECTURE.md#9-invariants-a-change-must-not-break):
+        no language-specific shape may cross the Tier 2 → Tier 3 boundary, the
+        semantic model stays the source of truth, ambiguity is never silently
+        resolved, and failure is data rather than an exception.
+
+        Say here if your proposal needs to bend one of those.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Including doing nothing, or expressing this as a deterministic mechanism instead.
+    validations:
+      required: false

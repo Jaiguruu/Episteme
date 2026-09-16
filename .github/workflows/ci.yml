@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: tests (ubuntu, py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is the floor: it comes from tree-sitter and
+        # tree-sitter-language-pack, not from this code. 3.14 is the
+        # development interpreter. 3.12 is a cheap middle point.
+        python-version: ["3.10", "3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        # Editable install, not a bare dependency list, so CI also exercises
+        # the packaging configuration -- including the package-data entry
+        # that ships the .scm query files.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Verify the query files were packaged
+        # A wheel that omits offline/queries/*.scm extracts nothing and fails
+        # silently, so assert the count here rather than discovering it later.
+        run: |
+          python -c "
+          from maat.offline.languages import extractable_languages
+          n = len(extractable_languages())
+          assert n == 18, f'expected 18 extractable languages, got {n}'
+          print(f'extractable languages: {n}')
+          "
+
+      - name: Run the test suite
+        # run_all.py exits 1 on any failure or error.
+        run: python tests/run_all.py
+
+  test-windows:
+    name: tests (windows, py3.14)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Run the test suite
+        # The scanner does path work and the fixtures contain CRLF files, so a
+        # POSIX-only matrix would never catch a separator or line-ending
+        # regression.
+        run: python tests/run_all.py
+
+  queries:
+    name: verify tree-sitter queries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Compile every query and check its captures fire
+        # A malformed query does not crash the pipeline -- it silently degrades
+        # extraction -- so it needs its own gate. Exits 1 on any failure.
+        run: python tools/verify_queries.py
