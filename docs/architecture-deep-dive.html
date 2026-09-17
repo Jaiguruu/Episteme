@@ -1689,7 +1689,7 @@ Tier&nbsp;2 knows about grammars and throws its tree away. Tier&nbsp;3 receives 
       <rect x="24" y="180" width="912" height="72" rx="8" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
       <text x="44" y="200" font-size="11" font-weight="700" fill="#6d28d9">D · load the previous model, bucket it by file</text>
       <text x="44" y="218" font-size="10" fill="#5b21b6">previous_ir = load_previous_ir(index_path) if previous_manifest else None</text>
-      <text x="44" y="234" font-size="10" fill="#5b21b6">reusable = _group_by_file(previous_ir) → {path: {symbols, relationships, evidence, chunks, diagnostics}}</text>
+      <text x="44" y="234" font-size="10" fill="#5b21b6">reusable = _group_by_file(previous_ir) → {path: {symbols, relationships, bindings, evidence, chunks, diagnostics}}</text>
       <text x="44" y="248" font-size="9.5" fill="#b45309">_group_by_file maps file_id→path for symbols/evidence, and symbol_id→path for relationships/chunks</text>
 
       <path d="M480,252 L480,266" stroke="#e11d48" stroke-width="1.5" marker-end="url(#pp1)"/>
@@ -1738,7 +1738,7 @@ Tier&nbsp;2 knows about grammars and throws its tree away. Tier&nbsp;3 receives 
       <!-- finalise -->
       <rect x="24" y="552" width="912" height="98" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
       <text x="44" y="572" font-size="11" font-weight="700" fill="#334155">F · sort, validate, build the version, publish</text>
-      <text x="44" y="590" font-size="10" fill="#475569">_sort_ir(ir) — files by path · symbols by (qname, line, id) · relationships by (type, src, target, line, col) · evidence · chunks · diagnostics</text>
+      <text x="44" y="590" font-size="10" fill="#475569">_sort_ir(ir) — files by path · symbols by (qname, line, id) · relationships by (type, src, target, line, col) · bindings by (owner, name, scope, line, col) · evidence · chunks · diagnostics</text>
       <text x="44" y="607" font-size="10" fill="#475569">validation = ir.problems() &nbsp;→&nbsp; ModelVersion(status = PUBLISHED if valid else FAILED, parent_id = previous_version)</text>
       <rect x="44" y="616" width="864" height="26" rx="6" fill="#f0fdfa" stroke="#5eead4" stroke-width="2"/>
       <text x="58" y="634" font-size="10" fill="#0f766e">if persist and result.is_valid: write_json(manifest) ; write_json(ir) — BOTH atomic, and only for a valid model</text>
@@ -1759,13 +1759,14 @@ Tier&nbsp;2 knows about grammars and throws its tree away. Tier&nbsp;3 receives 
       <code>maat status</code> while the broken code was still there.
     </div>
 
-    <div class="note risk">
-      <span class="lbl">A real defect on this path — <code>load_previous_ir</code> (line 129)</span>
-      Its docstring promises "a corrupt file is treated as absent, matching the manifest policy". That holds only for <strong>syntactically</strong> invalid JSON —
-      the guard wraps <code>json.load</code>, but <code>_ir_from_payload(payload)</code> at line 145 sits <em>outside</em> the <code>try</code>. Probed: a missing field raises
-      <code>KeyError</code>, an unknown enum value raises <code>ValueError</code>, a non-dict entity or wrong collection type raises <code>TypeError</code> — all of which propagate out of
-      <code>index()</code>. <code>{}</code> is silently accepted as an empty model. Contrast <code>load_manifest</code> (<code>changes.py:30</code>), which is defensive at every level.
-      The realistic trigger is schema drift across code versions — which is precisely what M2's schema changes will create.
+    <div class="note">
+      <span class="lbl">Fixed — <code>load_previous_ir</code> was not defensive</span>
+      Its docstring promises "a corrupt file is treated as absent, matching the manifest policy", and that promise was once false. The guard wrapped <code>json.load</code>, but the
+      rehydration that followed sat <em>outside</em> the <code>try</code>. Probed: a missing field raised <code>KeyError</code>, an unknown enum value <code>ValueError</code>, a wrong
+      collection type <code>TypeError</code> — all of which propagated out of <code>index()</code>. The guard now wraps rehydration too, catching narrowly
+      (<code>AttributeError</code>, <code>KeyError</code>, <code>TypeError</code>, <code>ValueError</code>) and reporting absence, so a drifted model triggers a rebuild instead of aborting
+      the run. <code>{}</code> is structurally valid, so it still loads — and is measured harmless: it yields nothing reusable, so unchanged files fall through to the parse branch.
+      Contrast <code>load_manifest</code> in <code>changes.py</code>, which was already defensive at every level.
     </div>
 
     <h4>Where M2 plugs in</h4>
@@ -1905,8 +1906,8 @@ Tier&nbsp;2 knows about grammars and throws its tree away. Tier&nbsp;3 receives 
 <footer>
   <p><strong>Sources.</strong> All diagrams derived by reading the current source tree:
   <span class="mono">maat/core/</span> (5 modules, 1 161 lines) and <span class="mono">maat/offline/</span> (9 modules, ~2 900 lines) plus 18 <span class="mono">.scm</span> query files.</p>
-  <p><strong>Verified figures</strong> are measured, not copied from docs: <span class="mono">demo_repo</span> = 7 files / 26 symbols / 42 relationships (12 CALLS, 19 CONTAINS, 11 IMPORTS) / 26 evidence / 34 chunks;
-  <span class="mono">edgecase_repo</span> = 142 scanned / 5 044 symbols / 5 398 relationships / 18 languages / 23 diagnostics; 137 tests passing.</p>
+  <p><strong>Verified figures</strong> are measured, not copied from docs: <span class="mono">demo_repo</span> = 7 files / 26 symbols / 42 relationships (12 CALLS, 19 CONTAINS, 11 IMPORTS) / 15 bindings / 26 evidence / 34 chunks;
+  <span class="mono">edgecase_repo</span> = 142 scanned / 5 044 symbols / 5 398 relationships / 1 binding / 18 languages / 23 diagnostics; 327 tests passing.</p>
   <p><strong>Companions.</strong> <span class="mono">ARCHITECTURE.md</span> (the canonical architecture and its invariants) ·
   <span class="mono">docs/decisions.md</span> (D1&ndash;D32, with the trade-offs accepted) ·
   <span class="mono">docs/verification.md</span> (criteria &rarr; tests) ·

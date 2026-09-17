@@ -62,20 +62,23 @@ That leaves three realistic risk classes:
 symbol or an unresolved edge is a correctness bug, not a vulnerability — the
 design deliberately prefers an honest `UNRESOLVED` over a confident guess.
 
-## Known robustness limitation
+## Robustness of the model loader
 
-`load_previous_ir` promises that a corrupt previous model is treated as absent and
-triggers a full rebuild. That holds for **syntactically** invalid JSON, but not
-for **structurally** invalid JSON: the guard wraps the parse, while the
-rehydration step sits outside it, so a missing field raises `KeyError`, an unknown
-enum value raises `ValueError`, and a malformed entity raises `TypeError`. These
-propagate out of the index call.
+`load_previous_ir` treats a corrupt previous model as absent and triggers a full
+rebuild. "Corrupt" covers both **syntactically** invalid JSON and payloads that parse
+but do not match the persisted shape: a missing field (`KeyError`), an unknown enum
+value (`ValueError`) and a wrong type (`TypeError` / `AttributeError`) are all caught
+and reported as absence, so a drifted model can never abort an index run.
 
-The realistic trigger is schema drift across versions, not a truncated write —
-publication is atomic (`mkstemp` → `fsync` → `os.replace`), so a half-written
-`ir.json` cannot be observed.
+An empty object is structurally valid, so it does load — and is harmless. It yields no
+reusable entities, so every unchanged file falls through to the parse branch and is
+rebuilt; the outcome is identical to treating the model as absent. Both behaviours are
+asserted by `PreviousModelLoaderTests` in `tests/offline/test_pipeline.py`.
 
-This is a known defect and is documented rather than silently accepted. It is
-tracked in [`ROADMAP.md`](ROADMAP.md) and [`docs/decisions.md`](docs/decisions.md).
-If you can reach it with untrusted input in a way that is worse than a failed
-index run, please report it.
+The realistic trigger for the structural case is **schema drift across versions**, not a
+truncated write — publication is atomic (`mkstemp` → `fsync` → `os.replace`), so a
+half-written `ir.json` cannot be observed.
+
+This was a documented defect until it was fixed; the history and the corrected analysis
+are in [`docs/decisions.md`](docs/decisions.md). If you can reach any remaining failure
+with untrusted input in a way that is worse than a failed index run, please report it.

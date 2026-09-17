@@ -24,7 +24,7 @@ leaving it implicit.
 
 ## Checklist
 
-- [ ] `python tests/run_all.py` passes — **137 tests**
+- [ ] `python tests/run_all.py` passes — **327 tests**
 - [ ] New or changed behaviour has a test that fails without this change
 - [ ] No unrelated code was modified in this PR
 - [ ] Any number quoted in the docs was **re-measured**, not copied

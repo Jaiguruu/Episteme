@@ -33,6 +33,7 @@ from typing import Any
 
 from ..core import ids as idgen
 from ..core.contracts import (
+    Binding,
     ChangeSet,
     Diagnostic,
     Evidence,
@@ -57,12 +58,32 @@ from .extractors.query_extractor import QueryExtractor
 from .ir_builder import build_file_ir
 from .parser import TreeSitterParser
 from .snapshot import SnapshotOptions, manifest_payload, scan_repository
-
 #: Default index directory, relative to the repository root.
 DEFAULT_INDEX_DIRNAME = ".maat"
 
 MANIFEST_FILENAME = "manifest.json"
 IR_FILENAME = "ir.json"
+
+#: Every collection the current schema writes into ``ir.json``.
+#:
+#: A payload missing one of these was written by an older schema, and must not be
+#: reused. The collection it lacks would be silently absent from the new model
+#: while the manifest reported every file unchanged -- so the result would look
+#: complete and not be, and ``problems()`` would not catch it because a model that
+#: never had the entities has no dangling references either. Treating such a
+#: payload as absent forces a rebuild, which is the same safe direction a corrupt
+#: payload takes.
+EXPECTED_COLLECTIONS: frozenset[str] = frozenset(
+    {
+        "files",
+        "symbols",
+        "relationships",
+        "bindings",
+        "evidence",
+        "chunks",
+        "diagnostics",
+    }
+)
 
 
 @dataclass
@@ -97,13 +118,19 @@ class PipelineResult:
     stats: PipelineStats = field(default_factory=PipelineStats)
     index_dir: str = ""
     validation_problems: list[str] = field(default_factory=list)
+    #: ``None`` when Stage 6 did not run. The rung-by-rung counts when it did.
+    resolution: Any = None
 
     @property
     def is_valid(self) -> bool:
         return not self.validation_problems
 
+    @property
+    def was_resolved(self) -> bool:
+        return self.resolution is not None
+
     def summary(self) -> dict[str, Any]:
-        return {
+        payload = {
             "model_version": self.version.id,
             "root": self.snapshot.root,
             "stats": self.stats.to_dict(),
@@ -112,7 +139,11 @@ class PipelineResult:
             "exclusions": self.snapshot.exclusion_counts(),
             "valid": self.is_valid,
             "validation_problems": self.validation_problems[:20],
+            "pipeline_fingerprint": self.version.pipeline_fingerprint,
         }
+        if self.resolution is not None:
+            payload["resolution"] = self.resolution.to_dict()
+        return payload
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +162,23 @@ def load_previous_ir(index_dir: Path) -> SemanticIR | None:
 
     A corrupt file is treated as absent, matching the manifest policy: the safe
     direction to fail is to rebuild from scratch rather than to abort.
+
+    **"Corrupt" covers structural damage, not only invalid JSON.** Rehydration
+    reads required fields and constructs enums, so a payload that parses but does
+    not match the persisted shape raises ``KeyError`` (missing field),
+    ``ValueError`` (unknown enum value) or ``TypeError`` / ``AttributeError``
+    (wrong type). The guard below therefore wraps the rehydration as well as the
+    parse. Leaving it outside meant those four escaped into the caller and aborted
+    the index run, which is precisely the outcome this function promises not to
+    produce.
+
+    The realistic trigger is **schema drift across versions**, not a truncated
+    write: publication is atomic, so a half-written ``ir.json`` cannot be
+    observed. See ``SECURITY.md``.
+
+    **A payload from an older schema is treated as absent too.** See
+    :data:`EXPECTED_COLLECTIONS`: reusing it would produce a model missing a whole
+    collection while every file was reported unchanged.
     """
     path = index_dir / IR_FILENAME
     if not path.is_file():
@@ -142,7 +190,16 @@ def load_previous_ir(index_dir: Path) -> SemanticIR | None:
         return None
     if not isinstance(payload, dict):
         return None
-    return _ir_from_payload(payload)
+    if not EXPECTED_COLLECTIONS.issubset(payload):
+        return None
+    try:
+        return _ir_from_payload(payload)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        # Structurally invalid for this schema version. Rebuilding from scratch is
+        # the safe direction: a drifted model must never be reused, and the
+        # previous version's files on disk are left untouched, so the reader sees
+        # either the old complete model or the new one.
+        return None
 
 
 def _ir_from_payload(payload: dict[str, Any]) -> SemanticIR:
@@ -152,7 +209,13 @@ def _ir_from_payload(payload: dict[str, Any]) -> SemanticIR:
     contract: it must stay readable and stable, and a silent field rename should
     break loudly here rather than corrupt a model.
     """
-    from ..core.enums import FileKind, RelationshipType, ResolutionStatus, SymbolType
+    from ..core.enums import (
+        BindingScope,
+        FileKind,
+        RelationshipType,
+        ResolutionStatus,
+        SymbolType,
+    )
     from ..core.locations import SourceSpan
 
     def span(raw: Any) -> SourceSpan:
@@ -217,6 +280,22 @@ def _ir_from_payload(payload: dict[str, Any]) -> SemanticIR:
             )
         )
 
+    # ``.get(..., [])`` rather than indexing: an ``ir.json`` written before
+    # bindings were persisted has no "bindings" key, and it must still load.
+    for raw in payload.get("bindings", []):
+        ir.bindings.append(
+            Binding(
+                id=raw["id"],
+                file_id=raw["file_id"],
+                bound_name=raw["bound_name"],
+                type_name=raw["type_name"],
+                scope=BindingScope(raw["scope"]),
+                location=span(raw["location"]),
+                model_version=raw["model_version"],
+                enclosing_symbol_id=raw.get("enclosing_symbol_id"),
+            )
+        )
+
     for raw in payload.get("evidence", []):
         ir.evidence.append(
             Evidence(
@@ -271,6 +350,7 @@ def _group_by_file(ir: SemanticIR) -> dict[str, dict[str, list[Any]]]:
             {
                 "symbols": [],
                 "relationships": [],
+                "bindings": [],
                 "evidence": [],
                 "chunks": [],
                 "diagnostics": [],
@@ -285,6 +365,12 @@ def _group_by_file(ir: SemanticIR) -> dict[str, dict[str, list[Any]]]:
         path = file_id_to_path.get(symbol.file_id)
         if path:
             bucket(path)["symbols"].append(symbol)
+    # Bindings carry their own file_id, so they are grouped directly rather than
+    # through an enclosing symbol.
+    for binding in ir.bindings:
+        path = file_id_to_path.get(binding.file_id)
+        if path:
+            bucket(path)["bindings"].append(binding)
     for evidence in ir.evidence:
         path = file_id_to_path.get(evidence.file_id)
         if path:
@@ -328,6 +414,7 @@ class OfflinePipeline:
         root: str | Path,
         index_dir: str | Path | None = None,
         persist: bool = True,
+        resolve: bool = False,
     ) -> PipelineResult:
         started = time.perf_counter()
         root_path = Path(root).resolve()
@@ -342,8 +429,16 @@ class OfflinePipeline:
 
         # --- stage 1: snapshot -------------------------------------------
         snapshot = scan_repository(root_path, model_version="", options=self.options)
+        # D27: the fingerprint records which pipeline derived this model. A run
+        # that resolves produces a different model from the same bytes, so it
+        # must mint a different version ID -- otherwise reuse would serve an
+        # unresolved model as if it were the resolved one.
+        fingerprint = idgen.PIPELINE_FINGERPRINT
+        if resolve:
+            fingerprint = idgen.PIPELINE_FINGERPRINT_RESOLVED
         version_id = idgen.model_version_id(
-            combine_hashes([record.content_hash for record in snapshot.files])
+            combine_hashes([record.content_hash for record in snapshot.files]),
+            fingerprint,
         )
         # Stamp the resolved version onto every record. Done here rather than
         # inside the scanner because the version is derived *from* the scan.
@@ -397,7 +492,26 @@ class OfflinePipeline:
                         root_path, record, language, version_id, ir, stats
                     )
 
+        # --- stage 6: resolution -------------------------------------------
+        # Placed after every file is built and before validation, so Stage 7
+        # checks the *resolved* model and an invalid resolution cannot publish.
+        # Section 4.2: an edge that cannot be resolved stays explicitly
+        # unresolved, which validation reports rather than rejects (D29), so a
+        # repository with unresolved edges still publishes.
+        resolution_report = None
+        if resolve:
+            # Imported here, not at module scope. ``maat.semantic`` depends only
+            # on ``maat.core``; importing it at the top of this module would pull
+            # the semantic tier into every offline import and blur the boundary
+            # the architecture is built around (D30). The pipeline is the
+            # orchestrator, so it is the one place allowed to reach across.
+            from ..semantic import resolve_ir
+
+            resolution_report = resolve_ir(ir)
+
         # --- deterministic ordering ---------------------------------------
+        # Re-sorted after resolution: resolution rewrites targets, and the sort
+        # key includes the target, so the pre-resolution order would be stale.
         _sort_ir(ir)
 
         validation = ir.problems()
@@ -411,6 +525,8 @@ class OfflinePipeline:
             status=VersionStatus.PUBLISHED if not validation else VersionStatus.FAILED,
             degraded_file_count=sum(1 for f in ir.files if f.is_degraded),
             diagnostics_count=len(ir.diagnostics),
+            binding_count=len(ir.bindings),
+            pipeline_fingerprint=fingerprint,
         )
 
         stats.symbols = len(ir.symbols)
@@ -428,6 +544,7 @@ class OfflinePipeline:
             stats=stats,
             index_dir=str(index_path),
             validation_problems=validation,
+            resolution=resolution_report,
         )
 
         # --- publish ------------------------------------------------------
@@ -500,6 +617,7 @@ class OfflinePipeline:
         file_ir = build_file_ir(facts, record, source, version_id)
         ir.symbols.extend(file_ir.symbols)
         ir.relationships.extend(file_ir.relationships)
+        ir.bindings.extend(file_ir.bindings)
         ir.evidence.extend(file_ir.evidence)
         ir.chunks.extend(file_ir.chunks)
         ir.diagnostics.extend(file_ir.diagnostics)
@@ -536,6 +654,10 @@ class OfflinePipeline:
         for relationship in bucket["relationships"]:
             relationship.model_version = version_id
             ir.relationships.append(relationship)
+        for binding in bucket["bindings"]:
+            binding.model_version = version_id
+            binding.file_id = record.id
+            ir.bindings.append(binding)
         for evidence in bucket["evidence"]:
             evidence.model_version = version_id
             evidence.file_id = record.id
@@ -565,6 +687,15 @@ def _sort_ir(ir: SemanticIR) -> None:
             r.source_location.start_col,
         )
     )
+    ir.bindings.sort(
+        key=lambda b: (
+            b.enclosing_symbol_id or "",
+            b.bound_name,
+            b.scope.value,
+            b.location.start_line,
+            b.location.start_col,
+        )
+    )
     ir.evidence.sort(key=lambda e: (e.entity_id, e.start_line, e.id))
     ir.chunks.sort(key=lambda c: (c.symbol_id, c.chunk_type))
     ir.diagnostics.sort(
@@ -573,7 +704,17 @@ def _sort_ir(ir: SemanticIR) -> None:
 
 
 def index_repository(
-    root: str | Path, index_dir: str | Path | None = None, persist: bool = True
+    root: str | Path,
+    index_dir: str | Path | None = None,
+    persist: bool = True,
+    resolve: bool = False,
 ) -> PipelineResult:
-    """Convenience wrapper around :class:`OfflinePipeline`."""
-    return OfflinePipeline().index(root, index_dir=index_dir, persist=persist)
+    """Convenience wrapper around :class:`OfflinePipeline`.
+
+    ``resolve`` runs Stage 6 before validation. It is off by default so that M1's
+    output stays reproducible bit-for-bit; turning it on mints a different model
+    version (D27), which is the point rather than a side effect.
+    """
+    return OfflinePipeline().index(
+        root, index_dir=index_dir, persist=persist, resolve=resolve
+    )

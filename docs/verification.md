@@ -32,17 +32,33 @@ belongs to tells you what kind of test can prove it.
 
 ## 2. Suite shape
 
-**137 tests, 33 classes, 6 files.** `python tests/run_all.py`, ~15 s, stdlib
+**327 tests, 66 classes, 12 files.** `python tests/run_all.py`, ~15 s, stdlib
 `unittest` only.
 
 | File | Tests | Classes | Covers |
 |---|---:|---:|---|
+| `tests/core/test_enums.py` | 9 | 4 | the closed vocabularies |
+| `tests/core/test_locations.py` | 18 | 5 | `SourceSpan` conventions and validation |
+| `tests/core/test_contracts.py` | 63 | 8 | entity contracts, referential integrity |
+| `tests/core/test_serialization.py` | 24 | 6 | canonical JSON, atomic writes, hash combining |
 | `tests/offline/test_snapshot.py` | 16 | 4 | §8 Stage 1 |
 | `tests/offline/test_changes.py` | 19 | 3 | §9 Stage 2 |
-| `tests/offline/test_parser.py` | 20 | 6 | §10 Stage 3 |
-| `tests/offline/test_extractor.py` | 16 | 8 | §11 Stage 4 |
-| `tests/offline/test_ir.py` | 31 | 7 | §12 Stage 5 |
-| `tests/offline/test_pipeline.py` | 35 | 5 | end-to-end, incremental, publication, §30 |
+| `tests/offline/test_parser.py` | 20 | 4 | §10 Stage 3 |
+| `tests/offline/test_extractor.py` | 16 | 5 | §11 Stage 4 |
+| `tests/offline/test_ir.py` | 45 | 7 | §12 Stage 5, identity, bindings, §13 resolution units |
+| `tests/offline/test_pipeline.py` | 62 | 8 | end-to-end, incremental, publication, §30, model loader, §13 integration |
+| `tests/semantic/test_resolver.py` | 32 | 11 | §13 Stages 6 — one class per acceptance criterion, plus the D24 ladder |
+| `tests/test_docs.py` | 3 | 1 | documentation hygiene guard (D33) |
+
+Counts are measured, not carried over: the per-file figures in this table were wrong
+before, so treat any number here as something to re-derive rather than trust. The
+current figures come from an AST walk (count `ast.ClassDef` at module level and
+`FunctionDef` named `test_*` anywhere), which is what caught the three class counts
+that were stale — `test_locations.py` at 4 instead of 5, `test_serialization.py` at
+4 instead of 6, and the total at 50 instead of 53.
+
+Counts are measured, not carried over: the per-file figures in this table were wrong
+before, so treat any number here as something to re-derive rather than trust.
 
 Shared support lives in `tests/support.py`: `TempRepository` (a disposable copy of
 a fixture) and `temp_repo(files)` (a synthetic repository from an explicit file
@@ -59,24 +75,31 @@ map). See [`testing.md`](testing.md).
 | §9 Stage 2 | 6 | 6 | AC6 split across two files |
 | §10 Stage 3 | 6 | 6 | |
 | §11 Stage 4 | 3 | 3 | `REFERENCES` / `IMPLEMENTS` not produced — see §5 |
-| §12 Stage 5 | 6 | 6 | `maat/core/` itself has no test module — see §5 |
-| §13 Stage 6 | 6 | 0 | M2 — AC4/AC5 pre-satisfied only |
+| §12 Stage 5 | 6 | 6 | `maat/core/` now has its own module — see §2 |
+| §13 Stage 6 | 6 | 6 | all six ACs have a dedicated test class in `tests/semantic/test_resolver.py` |
+| §14 Stage 7 | 6 | 0 | M2, in progress — the report and severity policy are next |
+| §15 Stage 8 | 6 | 0 | M2, in progress — `ModelStore` |
 | §16 Stage 9 | 5 | 0 | M3 — preconditions only |
 | §19 Stage 12 | 4 | 1 | AC3 only; M1 publishes atomically but there is no version pointer yet |
 | §30 Stage 22 | 5 | 5 | fully covered |
-| §36 edge matrix | 6 groups | 3 groups | resolution / retrieval / reasoning / agent groups are M2+ |
+| §36 edge matrix | 6 groups | 3 groups | retrieval / reasoning / agent groups are M4+ |
 
 **M1's acceptance surface is fully covered.** Every numbered AC belonging to §8,
 §9, §10, §11 and §30 has at least one direct test.
 
-**Overall: 39 of 131 stage-level criteria (30%) are covered** — the remainder
+**Stage 6 is now fully covered too.** Each of its six ACs maps to a class named
+after it (`AC1ExactResolutionTests` … `AC6ProvenanceTests`), so a failure names the
+criterion rather than the function. §13 AC5 — "no hallucinated relationship" — is
+asserted two ways: that every resolved target exists in the model, and that
+resolution neither adds nor removes an edge.
+
+**Overall: 45 of 131 stage-level criteria (34%) are covered** — the remainder
 belong to stages that are not built. This is a milestone boundary, not a gap.
 
-The three genuine gaps inside M1's own scope are:
-
-1. one untested defect in the model *loader* (below),
-2. `maat/core/` having no home in the test tree,
-3. spec items M1 legitimately defers.
+The gaps that were inside a built stage's own scope have all been closed:
+`maat/core/` now has a test module (§2), the model loader is defensive and tested
+(§5), and Stage 6 shipped with its full AC surface in the same change. Spec items
+belonging to stages that do not exist yet are not gaps.
 
 ---
 
@@ -96,25 +119,42 @@ The three genuine gaps inside M1's own scope are:
 
 ## 5. Known gaps and defects
 
-### The model loader is not defensive
+### The model loader was not defensive — fixed
 
-`load_previous_ir` guards the JSON parse but not the rehydration that follows it,
-so a **structurally** invalid previous model raises `KeyError`, `ValueError` or
-`TypeError` out of the index call instead of triggering a full rebuild. An empty
-object is silently accepted as an empty model.
+`load_previous_ir` guarded the JSON parse but not the rehydration that followed it, so a
+**structurally** invalid previous model raised `KeyError`, `ValueError` or `TypeError`
+out of the index call instead of triggering a full rebuild. The guard now wraps
+rehydration too and reports absence, which is what its docstring always promised.
 
-No test covers reading a malformed `ir.json`. Full analysis in
+`PreviousModelLoaderTests` in `tests/offline/test_pipeline.py` covers four malformed
+shapes, unparseable JSON, a non-object payload, the empty-object case, and — importantly
+— that a valid previous model still enables reuse. The four malformed shapes were
+measured escaping before the fix, so the tests were written against a real failure.
+
+The empty object is now *measured* benign rather than assumed: it loads, yields nothing
+reusable, and every unchanged file is reparsed. Full analysis in
 [`decisions.md`](decisions.md) and [`../SECURITY.md`](../SECURITY.md).
 
-### `maat/core/` has no test module
+### `maat/core/` now has a test module — closed
 
-1,161 lines covered only indirectly. Verified-untested: `combine_hashes`
-order-independence, `model_digest`, `_StrEnum.__str__`, `FileRecord.problems()`
-path validation, `SourceSpan.whole_file` / `point` / `is_zero_width` /
-`contains_line`, and `read_json` / `write_json`.
+It previously had none: 1,161 lines covered only indirectly. `tests/core/` now covers
+the pieces that were verified-untested, each named explicitly because each was
+grep-confirmed as having no direct test:
 
-`combine_hashes` is the sharpest case: it derives every `version_id` and exists
-purely for order-independence, and it has **zero** references in `tests/`.
+* `combine_hashes` order-independence — the sharpest case, since it derives every
+  `version_id`, exists purely for order-independence, and had **zero** references in
+  `tests/`. Also asserted: duplicates still affect the result, so sorting does not
+  silently deduplicate.
+* `model_digest`, including that it excludes the derived `counts` block.
+* `_StrEnum.__str__` returning the bare value, for every member of every vocabulary.
+* `FileRecord.problems()` path validation — POSIX-only and repo-relative, which
+  matters because this project is developed on Windows.
+* `SourceSpan.whole_file` / `point` / `is_zero_width` / `contains_line`.
+* `read_json` / `write_json` round trip, atomicity, and that a failed serialisation
+  leaves the previous file intact.
+
+Writing these also surfaced that the per-file class counts in this document had been
+wrong, which is why §2 now says the counts are measured.
 
 ### `REFERENCES` and `IMPLEMENTS` are neither produced nor tested
 
@@ -184,13 +224,18 @@ behaviour became testable as a result. The other seven deserve the same treatmen
 ## 7. Running the checks
 
 ```bash
-python tests/run_all.py            # 137 tests, exit 1 on failure
+python tests/run_all.py            # 327 tests, exit 1 on failure
 python tests/run_all.py -v         # verbose
 python tests/run_all.py offline    # substring filter on the test id
 
 python tools/verify_queries.py     # all 18 .scm compile and fire their captures
 python tools/verify_bindings.py    # per-language @binding coverage
+python tools/count_tests.py        # the 327 / 66 / 12 figures quoted in §2
 ```
 
-CI runs all three. `verify_queries.py` matters more than it looks: a malformed
+CI runs the first two. `verify_queries.py` matters more than it looks: a malformed
 query does not crash the pipeline, it silently degrades extraction.
+
+`count_tests.py` is not a gate — it exists because the figures in §2 are quoted in
+several documents, and hand-copied counts drifted twice. Run it before editing a
+count, and paste its output rather than adjusting a number by hand.

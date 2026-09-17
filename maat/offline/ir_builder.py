@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 
 from ..core import ids as idgen
 from ..core.contracts import (
+    Binding,
     Diagnostic,
     Evidence,
     FileRecord,
@@ -75,6 +76,7 @@ class FileIR:
 
     symbols: list[Symbol] = field(default_factory=list)
     relationships: list[Relationship] = field(default_factory=list)
+    bindings: list[Binding] = field(default_factory=list)
     evidence: list[Evidence] = field(default_factory=list)
     chunks: list[SemanticChunk] = field(default_factory=list)
     diagnostics: list[Diagnostic] = field(default_factory=list)
@@ -352,6 +354,58 @@ def build_file_ir(
                 target_name=call_fact.target_name,
             )
         )
+
+    # --- bindings ---------------------------------------------------------
+    # A binding records "this name holds this type here". It is what makes a call
+    # through a receiver (``self.repository.save``) resolvable at all: the call
+    # site alone never says what type ``repository`` has, so without this the
+    # expected chain in section 7 is unreachable.
+    #
+    # ``type_name`` is carried through **raw and unresolved**, exactly as
+    # ``target_name`` is on a call. Deciding that "PaymentRepository" means
+    # ``repositories.payment_repository`` is Stage 6's job, using the import
+    # table that already lives in this model.
+    for binding_fact in facts.bindings:
+        owner_id = _resolve_owner(
+            binding_fact.enclosing_qualified_name, by_qualified_name, module_symbol_id
+        )
+        binding = Binding(
+            id=idgen.binding_id(
+                file_record.path,
+                str(binding_fact.scope),
+                binding_fact.bound_name,
+                binding_fact.enclosing_qualified_name,
+                binding_fact.span.start_line,
+                binding_fact.span.start_col,
+            ),
+            file_id=file_record.id,
+            bound_name=binding_fact.bound_name,
+            type_name=binding_fact.type_name,
+            scope=binding_fact.scope,
+            location=binding_fact.span,
+            model_version=model_version,
+            enclosing_symbol_id=owner_id,
+        )
+        problems = binding.problems()
+        if problems:
+            # Rejected before indexing, as symbols are. An entity that cannot be
+            # validated must not become queryable.
+            for problem in problems:
+                result.diagnostics.append(
+                    Diagnostic(
+                        severity=DiagnosticSeverity.ERROR,
+                        code="ir.invalid_binding",
+                        message=(
+                            f"binding {binding_fact.bound_name!r} rejected: {problem}"
+                        ),
+                        file_path=file_record.path,
+                        language=facts.language,
+                        span=binding_fact.span,
+                        recovery_action=RECOVERY_NONE,
+                    )
+                )
+            continue
+        result.bindings.append(binding)
 
     # --- file-level chunks -------------------------------------------------
     result.chunks.extend(

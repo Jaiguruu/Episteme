@@ -5,7 +5,9 @@ reason, and **what was traded away** — the last column is the one that matters
 when you are deciding whether a decision still holds.
 
 This is the durable record extracted from the M1 and M2 implementation plans.
-Entries D1–D22 shipped in M1; D23–D32 are taken but not yet implemented.
+Entries D1–D22 shipped in M1; D23–D32 were taken during M1 planning and D23, D24,
+D25, D26, D27, D28, D29, D30 and D31 are now implemented in M2 (Stage 6); D33–D36
+were taken after M1 shipped.
 
 ---
 
@@ -59,7 +61,7 @@ Entries D1–D22 shipped in M1; D23–D32 are taken but not yet implemented.
 
 ---
 
-## Part 5 — M2 decisions (taken, not yet implemented)
+## Part 5 — M2 decisions (taken during M1 planning, implemented in Stage 6)
 
 | # | Decision | Rationale | Trade-off accepted |
 |---|---|---|---|
@@ -73,6 +75,8 @@ Entries D1–D22 shipped in M1; D23–D32 are taken but not yet implemented.
 | **D30** | `maat/semantic/` as a sibling of `offline/` | Keeps the syntax tier free of meaning, mirroring M1's tier boundary | One more package |
 | **D31** | Instance receivers as one shared frozenset | `self` / `this` / `cls` is a linguistic fact, not a grammar rule | A hardcoded vocabulary in one file |
 | **D32** | Stage 8 stops short of atomic publication | The pointer switch and rollback are explicitly Stage 12 | `ModelStore` is a stepping stone, not the final store |
+
+Implemented so far: **D23–D31** (Stage 6). Still open: **D32** (Stage 8, in progress).
 
 ---
 
@@ -102,52 +106,74 @@ having all three.
 
 ---
 
-## Part 7 — Open defects
+## Part 7 — Defects
 
-Known, measured, and not yet fixed. Listed here rather than only in an issue
-tracker because two of them constrain M2's design.
+Known and measured. Three were found during or after M1 and are now **fixed**; the rest
+are open. Listed here rather than only in an issue tracker because one of them
+constrains M2's design.
 
-### The `load_previous_ir` guard is incomplete
+### The `load_previous_ir` guard was incomplete — fixed
 
-`load_previous_ir` promises that a corrupt previous model is treated as absent and
-triggers a full rebuild. That holds for **syntactically** invalid JSON, but the
-guard wraps only the parse — the rehydration step sits outside it. A missing field
-raises `KeyError`, an unknown enum value raises `ValueError`, and a malformed
-entity raises `TypeError`; all of them propagate out of the index call. An empty
-object `{}` is silently accepted as an empty model.
+`load_previous_ir` promised that a corrupt previous model is treated as absent and
+triggers a full rebuild. That held for **syntactically** invalid JSON, but the guard
+wrapped only the parse — the rehydration step sat outside it. A missing field raised
+`KeyError`, an unknown enum value raised `ValueError`, and a malformed entity raised
+`TypeError`; all of them propagated out of the index call. The asymmetry was the defect:
+`load_manifest` in the same codebase is defensive at every level.
 
-The asymmetry is the defect: `load_manifest` in the same codebase is defensive at
-every level.
+**The fix** wraps rehydration in the same contract, catching narrowly
+(`AttributeError`, `KeyError`, `TypeError`, `ValueError`) so a drifted model degrades to
+absence and triggers a rebuild. Measured before the fix, all four shapes escaped;
+measured after, all four rebuild. `PreviousModelLoaderTests` in
+`tests/offline/test_pipeline.py` covers it — including one test guarding the opposite
+failure, that a *valid* previous model still enables reuse, because a guard that
+over-catches would be a worse and quieter defect than the one it fixed.
 
-The realistic trigger is **schema drift across versions**, not a truncated write —
-publication is atomic, so a half-written `ir.json` cannot be observed. That makes
-this a prerequisite for M2, which changes the persisted schema (D23) and the
-version-ID function (D27). See [`../SECURITY.md`](../SECURITY.md).
+**A correction to the original analysis.** This entry used to claim that an empty object
+`{}` "is silently accepted as an empty model", implying harm. That is now measured and
+false: `{}` is structurally valid so it does load, but it yields no reusable entities,
+so every unchanged file falls through to the parse branch and is rebuilt. The outcome is
+identical to treating the model as absent, and it is asserted as benign rather than left
+as an assumption.
 
-### Bindings are captured but never persisted
+The realistic trigger remains **schema drift across versions**, not a truncated write —
+publication is atomic, so a half-written `ir.json` cannot be observed. See
+[`../SECURITY.md`](../SECURITY.md).
 
-The capture half of D23 is done: `BindingFact` exists, `python.scm` emits the
-`@bind.*` patterns, and the extractor produces them. The missing half is
-everything downstream:
+### Bindings are captured but never persisted — fixed
 
-* `ir_builder.build_file_ir()` never reads `facts.bindings` — they are silently
-  dropped at the Tier 3 boundary
-* `SemanticIR` has no collection for them, so there is nowhere to persist them
-* `pipeline._group_by_file()` does not bucket them, so incremental reuse would lose
-  them even once they exist
+The capture half of D23 was done first: `BindingFact` existed, `python.scm` emitted the
+`@bind.*` patterns, and the extractor produced them. The missing half was everything
+downstream, and it was closed by D34:
 
-Consequence: **bindings do not survive into `ir.json`**, so Stage 6 cannot resolve
-a single member call until this path exists. Four of the twelve `demo_repo` `CALLS`
-edges need it, and three of those four are in the spec's own §7 expected chain.
+* `ir_builder.build_file_ir()` now reads `facts.bindings` and emits a `Binding` per
+  resolvable fact, dropping unresolvable ones with an `ir.invalid_binding` diagnostic
+  rather than raising
+* `SemanticIR.bindings` is the collection they persist into
+* `pipeline._group_by_file()` buckets them, so incremental reuse re-stamps them instead
+  of losing them
 
-### `maat/core/` has no dedicated test module
+Consequence, now measured: **bindings survive into `ir.json`.** The `demo_repo` extractor
+produces 15 facts, the model holds 15, and 15 are written to disk. Four of the twelve
+`demo_repo` `CALLS` edges still need Stage 6 resolution, and three of those four are in
+the spec's own §7 expected chain — persisting the facts is the prerequisite for that
+work, not the work itself.
 
-1,161 lines covered only indirectly through `tests/offline/`. Grep-verified
-untested: `combine_hashes` order-independence, `_StrEnum.__str__` returning the
-bare value, `FileRecord.problems()` path validation (POSIX-only and
-repo-relative — the cross-platform guard, and this project is developed on
-Windows), `SourceSpan.whole_file` / `point` / `is_zero_width` / `contains_line`,
-and the absence of derived relationship types from `RelationshipType`.
+### `maat/core/` has no dedicated test module — closed
+
+Was 1,161 lines covered only indirectly through `tests/offline/`. Now has
+`tests/core/` (four modules, 114 tests): `test_enums.py`, `test_locations.py`,
+`test_contracts.py`, `test_serialization.py`. The previously grep-verified untested
+behaviours are now asserted directly — `combine_hashes` order-independence,
+`_StrEnum.__str__` returning the bare value, `FileRecord.problems()` path validation
+(POSIX-only and repo-relative, the cross-platform guard that matters on this Windows
+checkout), `SourceSpan.whole_file` / `point` / `is_zero_width` / `contains_line`, and
+the absence of derived relationship types from `RelationshipType`.
+
+Measuring the coverage revealed two documented per-file class counts were themselves
+wrong (`docs/verification.md` claimed 6 classes for `test_parser.py` and 8 for
+`test_extractor.py`; the real counts are 4 and 5). They are corrected there, and the
+counts in both docs are now AST-measured rather than hand-maintained.
 
 ### `tools/demo_offline.py --touch` mutates a committed fixture
 
@@ -159,3 +185,21 @@ directory first.
 Declared but unused, reserved for later stages. **Do not delete these without a
 decision:** `ChangeKind`, `RECOVERY_STATEMENT`, `SymbolType.PARAMETER` /
 `VARIABLE` / `IMPORT`, `RelationshipType.REFERENCES` / `IMPLEMENTS`.
+
+---
+
+## Part 8 — Documentation
+
+| # | Decision | Rationale | Trade-off accepted |
+|---|---|---|---|
+| **D33** | Do not quote concrete `model_version` values in documentation | A version ID is a digest of the raw bytes of every scanned file (D9), so it varies with line-ending policy and with any fixture edit. Quoted values went stale without anything being wrong: the IDs in `README.md` and `docs/testing.md` did not reproduce on a `core.autocrlf=true` checkout, while the symbol and relationship counts printed beside them did. A number a reader cannot reproduce is worse than no number — it invites distrust of the figures that *are* correct | The docs lose a concrete example of what an ID looks like, and a future version-compatibility table must identify versions some other way. `tests/test_docs.py` enforces this, so documenting one now fails the suite |
+| **D34** | Persist bindings as a first-class collection on `SemanticIR` | D23 captured bindings in Tier 2 but nothing carried them across the Tier 3 boundary, so Stage 6 could not resolve a member call and the whole path was unbuildable. A `Binding` entity with a `bind_*` content-addressed ID (same scheme and same never-input-`model_version` rule as every other entity) closes it without putting any language-specific shape in `ir_builder.py` — the builder consumes `BindingFact` like any other fact | `SemanticIR` grows from six collections to seven, so the persisted shape changes and `EXPECTED_COLLECTIONS` now guards the loader against a payload written by an earlier build. That guard matters more than the collection: without it a 0.1.0 model loads, is reused, and silently yields a new model missing a whole collection while carrying the *identical* `model_version` ID. The guard treats any payload missing a collection as stale and rebuilds |
+
+---
+
+## Part 9 — M2 implementation (taken and implemented)
+
+| # | Decision | Rationale | Trade-off accepted |
+|---|---|---|---|
+| **D35** | Resolution is opt-in (`index(..., resolve=False)` by default) | M1's output must stay reproducible bit-for-bit, and resolution changes the version ID (D27). Making it opt-in keeps "what does the offline pipeline produce" a stable question, makes the stage boundary visible at the call site, and lets every existing test keep asserting M1 behaviour without a flag. A separate `PIPELINE_FINGERPRINT_RESOLVED` constant records which pipeline ran, so a model is self-describing | Two fingerprints to maintain, and a caller who wants the resolved model must know to ask for it. A default of `True` would have been friendlier and would have silently changed every documented figure in the repository |
+| **D36** | Follow an unannotated alias one hop when resolving a receiver's type | The common constructor-injection shape records two bindings under one name: the parameter (annotated, `repository: PaymentRepository`) and the attribute (an alias, `self.repository = repository`, recorded as `repository: repository`). Taking the first match by emission order is arbitrary; refusing to follow the alias loses a genuinely resolvable edge (`PaymentService.process → PaymentRepository.save`). The rule is language-neutral — "a type name that is also a bound name is an alias" — and bounded to one hop, so it cannot loop | A resolver that follows aliases can, in principle, follow a wrong one. Bounded to a single hop within the same two scopes (caller body, then constructor), and confirmed by a test that the resulting edge lands on the right method |

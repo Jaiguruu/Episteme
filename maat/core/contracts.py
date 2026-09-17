@@ -19,6 +19,7 @@ from typing import Any
 from . import ids as idgen
 from .enums import (
     RECOVERY_NONE,
+    BindingScope,
     DiagnosticSeverity,
     FileKind,
     ParseStatus,
@@ -232,6 +233,15 @@ class Relationship:
     unresolved relationship over an incorrect confident relationship" is
     enforced. ``target_name`` always holds the raw text we saw, so a later
     resolver has something to work with.
+
+    Two fields exist for Stage 6 and are empty until it runs (D25, D26):
+
+    * ``target_name`` is retained *after* resolution as well as before it, so
+      ``relationship_id`` stays stable across a reindex that resolves more edges.
+    * ``candidate_symbol_ids`` is populated only for an ``AMBIGUOUS`` edge, and
+      lists a bounded set of the symbols the resolver could not choose between.
+      The edge keeps its placeholder target (D28), so a caller must read
+      ``resolution_status`` before using ``target_symbol_id``.
     """
 
     id: str
@@ -243,6 +253,7 @@ class Relationship:
     source_location: SourceSpan
     model_version: str
     target_name: str | None = None
+    candidate_symbol_ids: list[str] = field(default_factory=list)
 
     @property
     def is_resolved(self) -> bool:
@@ -279,6 +290,23 @@ class Relationship:
             )
         if idgen.is_unresolved_target(self.target_symbol_id) and not self.target_name:
             issues.append("an unresolved relationship must record target_name")
+        # D26: ambiguity must be *marked*, and the candidates are the useful part.
+        # An AMBIGUOUS edge with no candidates tells a reader nothing they can act
+        # on, so it is treated as an error rather than an incomplete record.
+        if (
+            self.resolution_status is ResolutionStatus.AMBIGUOUS
+            and not self.candidate_symbol_ids
+        ):
+            issues.append("an AMBIGUOUS relationship must record candidate_symbol_ids")
+        # An exact edge that lists candidates is internally contradictory: if the
+        # answer were exact there would be nothing to choose between.
+        if (
+            self.resolution_status is ResolutionStatus.RESOLVED_EXACT
+            and self.candidate_symbol_ids
+        ):
+            issues.append(
+                "a RESOLVED_EXACT relationship must not record candidate_symbol_ids"
+            )
         if not self.model_version:
             issues.append("model_version is empty")
         issues.extend(f"source_location: {p}" for p in self.source_location.problems())
@@ -295,6 +323,67 @@ class Relationship:
             "source_location": self.source_location.to_dict(),
             "model_version": self.model_version,
             "target_name": self.target_name,
+            "candidate_symbol_ids": list(self.candidate_symbol_ids),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Bindings
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Binding:
+    """A name bound to a type within one scope (added for Stage 6).
+
+    Persisted because syntax alone cannot resolve a member call. A call site
+    records ``receiver="self.repository"`` as raw text, and nothing in the tree
+    says what type ``repository`` holds. Without this surviving into the model,
+    Stage 6 cannot resolve a single member call, and the expected chain in
+    section 7 is unreachable -- every edge in it is reached through a *bound*
+    receiver rather than through a name.
+
+    ``type_name`` is deliberately left **raw and unresolved**, exactly as
+    ``Relationship.target_name`` is. Deciding that ``PaymentRepository`` means
+    ``repositories.payment_repository`` is the resolver's job, using the same
+    import table as any other name.
+    """
+
+    id: str
+    file_id: str
+    bound_name: str
+    type_name: str
+    scope: BindingScope
+    location: SourceSpan
+    model_version: str
+    enclosing_symbol_id: str | None = None
+    """The symbol the binding occurs in, when one was identified. For an
+    ``INSTANCE`` binding this is usually the constructor, which is why resolution
+    must fall back from a call site's method to its class's constructor."""
+
+    def problems(self) -> list[str]:
+        issues: list[str] = []
+        if not self.bound_name:
+            issues.append("bound_name is empty")
+        if not self.type_name:
+            issues.append("type_name is empty")
+        if not self.file_id:
+            issues.append("file_id is empty")
+        if not self.model_version:
+            issues.append("model_version is empty")
+        issues.extend(f"location: {p}" for p in self.location.problems())
+        return issues
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "file_id": self.file_id,
+            "bound_name": self.bound_name,
+            "type_name": self.type_name,
+            "scope": str(self.scope),
+            "location": self.location.to_dict(),
+            "model_version": self.model_version,
+            "enclosing_symbol_id": self.enclosing_symbol_id,
         }
 
 
@@ -424,6 +513,8 @@ class ModelVersion:
     status: VersionStatus
     degraded_file_count: int = 0
     diagnostics_count: int = 0
+    binding_count: int = 0
+    pipeline_fingerprint: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -436,6 +527,8 @@ class ModelVersion:
             "status": str(self.status),
             "degraded_file_count": self.degraded_file_count,
             "diagnostics_count": self.diagnostics_count,
+            "binding_count": self.binding_count,
+            "pipeline_fingerprint": self.pipeline_fingerprint,
         }
 
 
@@ -561,6 +654,7 @@ class SemanticIR:
     files: list[FileRecord] = field(default_factory=list)
     symbols: list[Symbol] = field(default_factory=list)
     relationships: list[Relationship] = field(default_factory=list)
+    bindings: list[Binding] = field(default_factory=list)
     evidence: list[Evidence] = field(default_factory=list)
     chunks: list[SemanticChunk] = field(default_factory=list)
     diagnostics: list[Diagnostic] = field(default_factory=list)
@@ -610,6 +704,20 @@ class SemanticIR:
                 and rel.target_symbol_id not in symbol_ids
             ):
                 issues.append(f"{rel.id}: target {rel.target_symbol_id} does not exist")
+        for binding in self.bindings:
+            issues.extend(f"{binding.id}: {p}" for p in binding.problems())
+            if binding.file_id not in file_ids:
+                issues.append(
+                    f"{binding.id}: file_id {binding.file_id} does not exist"
+                )
+            if (
+                binding.enclosing_symbol_id is not None
+                and binding.enclosing_symbol_id not in symbol_ids
+            ):
+                issues.append(
+                    f"{binding.id}: enclosing_symbol_id "
+                    f"{binding.enclosing_symbol_id} does not exist"
+                )
         for ev in self.evidence:
             issues.extend(f"{ev.id}: {p}" for p in ev.problems())
             if ev.file_id not in file_ids:
@@ -635,6 +743,7 @@ class SemanticIR:
             "files": len(self.files),
             "symbols": len(self.symbols),
             "relationships": len(self.relationships),
+            "bindings": len(self.bindings),
             "evidence": len(self.evidence),
             "chunks": len(self.chunks),
             "diagnostics": len(self.diagnostics),
@@ -648,6 +757,7 @@ class SemanticIR:
             "files": [f.to_dict() for f in self.files],
             "symbols": [s.to_dict() for s in self.symbols],
             "relationships": [r.to_dict() for r in self.relationships],
+            "bindings": [b.to_dict() for b in self.bindings],
             "evidence": [e.to_dict() for e in self.evidence],
             "chunks": [c.to_dict() for c in self.chunks],
             "diagnostics": [d.to_dict() for d in self.diagnostics],

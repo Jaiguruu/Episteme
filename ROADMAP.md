@@ -11,15 +11,18 @@ For the normative specification see [`SPEC.md`](SPEC.md); for design rationale s
 
 | | |
 |---|---|
-| **Current milestone** | M1 — complete and verified |
-| **Test suite** | 137 tests, all passing (`python tests/run_all.py`, ~15 s) |
+| **Current milestone** | M2 — Stage 6 complete, Stages 7–8 next |
+| **Test suite** | 327 tests, all passing (`python tests/run_all.py`, ~15 s) |
 | **Package version** | `0.1.0` |
 | **Languages** | 61 registered · **18 extractable** · 39 parse-only · 4 data/config |
-| **Next milestone** | M2 — resolution, validation, canonical model |
+| **Next** | Stage 7 (relationship validation report), then Stage 8 (`ModelStore`) |
 
-`demo_repo` (7 files) produces 26 symbols and 42 relationships.
-`edgecase_repo` (156 files, 18 grammars) produces 5,044 symbols and 5,398
-relationships, with 9 deliberately malformed files isolated rather than fatal.
+`demo_repo` (7 files) produces 26 symbols, 42 relationships and 15 bindings; with
+`resolve=True`, all 42 relationships resolve exactly and the spec's §7 dependency
+chain is walkable as real `CALLS` edges. `edgecase_repo` (142 scanned files, 18
+grammars) produces 5,044 symbols and 5,398 relationships, with 9 deliberately
+malformed files isolated rather than fatal; resolving it leaves 177 edges
+explicitly unresolved and marks 62 ambiguous, in 0.07 s.
 
 ---
 
@@ -31,7 +34,7 @@ ordering is strict — each milestone depends on the artifacts of the previous o
 | Milestone | Stages | Theme | Status |
 |---|---|---|---|
 | **M1** | 0–5 | Foundations & offline parser | **done** |
-| **M2** | 6–8 | Resolution & canonical model | **next** |
+| **M2** | 6–8 | Resolution & canonical model | **in progress** — Stage 6 done |
 | **M3** | 9–12 | Index projections (graph, FTS5, vector) | not started |
 | **M4** | 13–18 | Online query pipeline | not started |
 | **M5** | 19–20 | Agent layer (MCP tools, ReAct) | not started |
@@ -42,6 +45,23 @@ ordering is strict — each milestone depends on the artifacts of the previous o
 Snapshot → change detection → tree-sitter parsing → semantic extraction → IR,
 with deterministic IDs, atomic publication, incremental reuse and a failure model
 that isolates a broken file instead of aborting the run.
+
+### M2 — in progress
+
+**Stage 6 (resolution) is complete.** `maat/semantic/` resolves observed
+references to real symbols through a nine-rung precedence ladder (D24), so an
+edge's `resolution_status` is a statement of *which fact* justified it rather than
+an opaque score. The resolver reads only the language-neutral model — symbols,
+relationships, bindings — and never a grammar, so it covers all 18 extractable
+languages without a per-language branch.
+
+Section 4.2 governs it: an edge that cannot be placed stays explicitly
+`UNRESOLVED`, and one with several equally plausible targets is marked `AMBIGUOUS`
+with those candidates listed, never guessed. A test asserts the resolver never
+points at a symbol that does not exist.
+
+Stages 7 and 8 remain: relationship validation as a machine-readable report with
+an info/error severity split, and the canonical `ModelStore`.
 
 ### M2 — next
 
@@ -59,17 +79,24 @@ query surface.
 It lands in a new sibling package `maat/semantic/`, so the syntax tier stays free
 of meaning.
 
-**Two prerequisites are known and must be settled before Stage 6 starts.** Both
-are described in [`docs/decisions.md`](docs/decisions.md):
+**One prerequisite remains, and it must be settled before Stage 6 starts.** It is
+described in [`docs/decisions.md`](docs/decisions.md):
 
-1. **Bindings are captured but never persisted.** `BindingFact` exists and the
-   extractor produces it, but `ir_builder` never reads `facts.bindings`,
-   `SemanticIR` has no collection for them, and incremental reuse does not carry
-   them. Without this path, Stage 6 cannot resolve a single member call.
-2. **Version identity needs a pipeline fingerprint.** `model_version_id` is
+1. **Version identity needs a pipeline fingerprint.** `model_version_id` is
    currently a pure function of file content. That is correct for M1 but breaks in
    M2, because resolution changes the model *without changing any file* — so one
    content hash would map to two different models sharing a version ID.
+
+The other prerequisite — **bindings captured but never persisted** — is **closed**.
+`ir_builder` now emits them, `SemanticIR` carries a `bindings` collection, and
+incremental reuse buckets and re-stamps them (D34). Stage 6 has its raw material.
+
+> Adding that collection made the first prerequisite concrete rather than
+> hypothetical: a model written before it existed and a model written after, over
+> identical file content, shared a version ID while differing in content.
+> `load_previous_ir` now treats a payload missing a collection as stale and rebuilds,
+> which removes the silent-gap case — but the version ID itself still collides, so
+> the fingerprint is still needed.
 
 ### M3–M6 — not started
 

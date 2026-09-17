@@ -45,8 +45,8 @@ one extractor.
 
 ## The model
 
-**`SemanticIR`** — the canonical semantic model, and the source of truth. Six
-collections: `files`, `symbols`, `relationships`, `evidence`, `chunks`,
+**`SemanticIR`** — the canonical semantic model, and the source of truth. Seven
+collections: `files`, `symbols`, `relationships`, `bindings`, `evidence`, `chunks`,
 `diagnostics`. Every index is a projection of it.
 
 **`Symbol`** — a declaration: module, class, interface, enum, function, method,
@@ -54,6 +54,10 @@ constructor, field, type alias.
 
 **`Relationship`** — an edge between symbols. `CONTAINS`, `IMPORTS`, `CALLS`,
 `INHERITS` are produced; `REFERENCES` and `IMPLEMENTS` are declared but unused.
+
+**`Binding`** — a name → type binding, persisted. Carries the bound name, the raw
+type name, the scope, and the symbol it occurs in. `type_name` stays **raw and
+unresolved** until Stage 6, exactly as `Relationship.target_name` does.
 
 **`Evidence`** — the source span backing a symbol. Every symbol has one, and
 `retrieval_source` records where it came from (`offline.ast`).
@@ -106,6 +110,7 @@ prefix. Stable across runs, and never derived from a database row.
 | `rel_` | relationship |
 | `ev_` | evidence |
 | `chunk_` | chunk |
+| `bind_` | binding |
 | `mv_` | model version |
 | `unresolved:` | placeholder target for an unresolved edge |
 

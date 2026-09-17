@@ -12,6 +12,7 @@ import unittest
 from maat.core import ids as idgen
 from maat.core.contracts import FileRecord, Relationship, SemanticIR, Symbol
 from maat.core.enums import (
+    BindingScope,
     FileKind,
     ParseStatus,
     RelationshipType,
@@ -120,6 +121,48 @@ class IdentityTests(unittest.TestCase):
         first = {s.qualified_name: s.id for s in build(source, "o.py").symbols}
         second = {s.qualified_name: s.id for s in build(source, "o.py").symbols}
         self.assertEqual(first, second)
+
+
+class VersionIdentityTests(unittest.TestCase):
+    """D27: version identity gains a pipeline fingerprint.
+
+    Before M2 a version ID was a pure function of file content, which was correct
+    while the pipeline only observed. Resolution rewrites relationship targets
+    without touching a file, so without a second dimension two different models
+    built from the same bytes would share a version ID -- and incremental reuse
+    keys off that ID.
+    """
+
+    CONTENT = "0123456789abcdef"  # synthetic digest, never a real model version
+
+    def test_same_content_and_pipeline_is_stable(self) -> None:
+        first = idgen.model_version_id(self.CONTENT)
+        second = idgen.model_version_id(self.CONTENT)
+        self.assertEqual(first, second)
+
+    def test_same_content_different_pipeline_differs(self) -> None:
+        offline = idgen.model_version_id(self.CONTENT, "offline;semantic=absent")
+        resolved = idgen.model_version_id(self.CONTENT, "offline;semantic=6-8")
+        self.assertNotEqual(offline, resolved)
+
+    def test_fingerprint_change_does_not_disturb_entity_ids(self) -> None:
+        """Only the version ID moves. Symbols must stay recognisable.
+
+        If bumping the fingerprint renamed every symbol, incremental reuse would
+        be destroyed by the very change meant to protect it.
+        """
+        before = idgen.symbol_id("a.py", "CLASS", "a:Thing")
+        after = idgen.symbol_id("a.py", "CLASS", "a:Thing")
+        self.assertEqual(before, after)
+
+    def test_fingerprint_is_a_source_constant(self) -> None:
+        """It must not be read from the environment or a clock.
+
+        Section 9 AC2 requires a no-change run to reuse everything; a fingerprint
+        that varied per run would mint a new version every time.
+        """
+        self.assertIsInstance(idgen.PIPELINE_FINGERPRINT, str)
+        self.assertTrue(idgen.PIPELINE_FINGERPRINT)
 
 
 class RelationshipTests(unittest.TestCase):
@@ -351,6 +394,104 @@ def _file_record() -> FileRecord:
         model_version="mv_1",
         file_kind=FileKind.SOURCE,
     )
+
+
+BINDING_SOURCE = b'''from repositories.payment_repository import PaymentRepository
+
+
+class CheckoutService:
+    def __init__(self, repository: PaymentRepository):
+        self.repository = repository
+
+    def checkout(self, amount: float):
+        local = CheckoutService(repository=self.repository)
+        return self.repository.save(local)
+'''
+
+REBINDING_SOURCE = b'''class A:
+    pass
+
+
+class B:
+    pass
+
+
+def f():
+    x = A()
+    x = B()
+'''
+
+
+class BindingTests(unittest.TestCase):
+    """Bindings must survive the Tier 2 -> Tier 3 boundary (D34).
+
+    A call site records ``receiver="self.repository"`` as raw text, and nothing in
+    the tree says what type ``repository`` holds. Until bindings reached the model
+    they were extracted and then dropped, so Stage 6 had nothing to resolve a
+    member call with.
+    """
+
+    def test_bindings_reach_the_model(self) -> None:
+        result = build(BINDING_SOURCE, "services/checkout_service.py")
+        self.assertEqual(len(result.bindings), 4)
+
+    def test_binding_ids_are_stable_across_runs(self) -> None:
+        first = sorted(b.id for b in build(BINDING_SOURCE).bindings)
+        second = sorted(b.id for b in build(BINDING_SOURCE).bindings)
+        self.assertEqual(first, second)
+
+    def test_binding_ids_are_independent_of_model_version(self) -> None:
+        """Version is an attribute, not part of identity — the same rule as symbols."""
+        first = sorted(b.id for b in build(BINDING_SOURCE, version="mv_1").bindings)
+        second = sorted(b.id for b in build(BINDING_SOURCE, version="mv_2").bindings)
+        self.assertEqual(first, second)
+
+    def test_binding_ids_are_self_describing(self) -> None:
+        for binding in build(BINDING_SOURCE).bindings:
+            self.assertTrue(binding.id.startswith("bind_"), binding.id)
+
+    def test_type_name_is_carried_through_raw(self) -> None:
+        """Resolution is Stage 6's job; the model records what the source said."""
+        names = {b.type_name for b in build(BINDING_SOURCE).bindings}
+        self.assertIn("PaymentRepository", names)
+        self.assertIn("CheckoutService", names)
+
+    def test_every_scope_is_preserved(self) -> None:
+        scopes = {b.scope for b in build(BINDING_SOURCE).bindings}
+        self.assertEqual(
+            scopes,
+            {BindingScope.PARAMETER, BindingScope.INSTANCE, BindingScope.LOCAL},
+        )
+
+    def test_a_binding_records_its_enclosing_symbol(self) -> None:
+        result = build(BINDING_SOURCE)
+        symbol_ids = {s.id for s in result.symbols}
+        for binding in result.bindings:
+            with self.subTest(binding=binding.bound_name, scope=str(binding.scope)):
+                self.assertIsNotNone(binding.enclosing_symbol_id)
+                self.assertIn(binding.enclosing_symbol_id, symbol_ids)
+
+    def test_rebinding_produces_two_distinct_bindings(self) -> None:
+        """``x = A(); x = B()`` is two genuine bindings, not one.
+
+        Collapsing them would move the resolver's "last write wins" decision out
+        of Stage 6 and into the extractor.
+        """
+        bindings = [
+            b
+            for b in build(REBINDING_SOURCE, "mod.py").bindings
+            if b.bound_name == "x"
+        ]
+        self.assertEqual(len(bindings), 2)
+        self.assertEqual(len({b.id for b in bindings}), 2)
+
+    def test_every_binding_carries_the_model_version(self) -> None:
+        for binding in build(BINDING_SOURCE, version="mv_9").bindings:
+            self.assertEqual(binding.model_version, "mv_9")
+
+    def test_bindings_are_validated(self) -> None:
+        for binding in build(BINDING_SOURCE).bindings:
+            self.assertEqual(binding.problems(), [], binding.id)
 
 
 if __name__ == "__main__":

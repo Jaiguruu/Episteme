@@ -32,7 +32,7 @@ python -c "import tree_sitter; print(tree_sitter.__file__)"
 **Run the suite:**
 
 ```bash
-python tests/run_all.py              # 137 tests, ~15 s
+python tests/run_all.py              # 327 tests, ~15 s
 python tests/run_all.py -v           # verbose
 python tests/run_all.py offline      # only tests whose id contains "offline"
 ```
@@ -145,11 +145,16 @@ two-captures-per-pattern rule, per-language quirks, and how to verify — are in
 ```bash
 python tools/verify_queries.py         # compiles all 18 queries, exits 1 on failure
 python tools/dump_trees.py <language>  # print a real parse tree to write patterns against
+python tools/count_tests.py            # derive the suite figures the docs quote
 ```
 
 `verify_queries.py` matters more than it looks: a malformed query does **not**
 crash the pipeline. It silently degrades extraction, so a broken query ships as
 missing symbols unless this gate catches it. CI runs it.
+
+`count_tests.py` is for you, not for CI. The test, class and file counts appear in
+this file and in two docs, and hand-copied figures drifted; run the tool and paste
+its output instead of editing a number by hand.
 
 ---
 
@@ -203,7 +208,7 @@ the second run and the degraded count went 1 -> 0.
 
 **Before opening a PR:**
 
-- [ ] `python tests/run_all.py` passes (137 tests)
+- [ ] `python tests/run_all.py` passes (327 tests)
 - [ ] `python tools/verify_queries.py` exits 0 (if you touched a `.scm`)
 - [ ] New behaviour has a test that fails without your change
 - [ ] No unrelated code was modified

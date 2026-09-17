@@ -6,10 +6,16 @@ and the determinism guarantees the model depends on.
 
 from __future__ import annotations
 
+import json
 import unittest
 from collections import defaultdict
 
-from maat.core.enums import ParseStatus, RelationshipType, SymbolType
+from maat.core.enums import (
+    ParseStatus,
+    RelationshipType,
+    ResolutionStatus,
+    SymbolType,
+)
 from maat.core.serialization import canonical_json, model_digest
 from maat.offline.pipeline import OfflinePipeline
 
@@ -380,6 +386,410 @@ class PersistenceTests(unittest.TestCase):
         self.assertIsNone(second.ir.file_by_path("models/payment.py"))
         excluded = {e.path: str(e.reason) for e in second.snapshot.excluded}
         self.assertEqual(excluded.get("models/payment.py"), "BINARY")
+
+
+class PreviousModelLoaderTests(unittest.TestCase):
+    """A damaged or drifted ``ir.json`` must trigger a rebuild, never abort the run.
+
+    Section 9 AC6 and section 34 both require a failed index to leave the previous
+    valid version serving. Rehydration reads required fields and constructs enums,
+    so a payload can parse as JSON and still not be a model. Before the guard was
+    widened, those failures escaped ``index_repository`` and killed the run.
+    """
+
+    #: Payloads that are valid JSON but cannot be rehydrated into a model.
+    MALFORMED_PAYLOADS: dict[str, object] = {
+        "missing field": {"symbols": [{"id": "sym_x"}]},
+        "unknown enum value": {
+            "files": [
+                {
+                    "path": "a.py",
+                    "language": "python",
+                    "content_hash": "h",
+                    "size": 1,
+                    "parse_status": "BOGUS",
+                    "model_version": "mv_1",
+                }
+            ]
+        },
+        "wrong type for files": {"files": "not-a-list"},
+        "symbol missing location": {
+            "symbols": [
+                {
+                    "id": "s",
+                    "file_id": "f",
+                    "name": "n",
+                    "qualified_name": "m:n",
+                    "symbol_type": "CLASS",
+                    "content_hash": "h",
+                    "model_version": "mv_1",
+                }
+            ]
+        },
+    }
+
+    def _reindex_with_previous_model_text(self, text: str):
+        """Index once, overwrite ``ir.json`` with ``text``, then index again."""
+        with TempRepository() as repo:
+            pipeline = OfflinePipeline()
+            pipeline.index(repo.root, index_dir=repo.index_dir)
+            (repo.index_dir / "ir.json").write_text(text, encoding="utf-8")
+            return pipeline.index(repo.root, index_dir=repo.index_dir)
+
+    def _assert_rebuilt(self, result, label: str = "") -> None:
+        self.assertEqual(result.validation_problems, [], label)
+        self.assertTrue(result.is_valid, label)
+        # Rebuilt from scratch, so the model is complete rather than empty.
+        self.assertEqual(len(result.ir.files), 7, label)
+        self.assertGreater(len(result.ir.symbols), 0, label)
+        self.assertEqual(result.stats.files_parsed, 7, label)
+
+    def test_structurally_invalid_previous_model_triggers_a_rebuild(self) -> None:
+        """Each malformed shape must rebuild, not raise."""
+        for label, payload in self.MALFORMED_PAYLOADS.items():
+            with self.subTest(payload=label):
+                result = self._reindex_with_previous_model_text(json.dumps(payload))
+                self._assert_rebuilt(result, label)
+
+    def test_unparseable_previous_model_triggers_a_rebuild(self) -> None:
+        result = self._reindex_with_previous_model_text("{not json at all")
+        self._assert_rebuilt(result)
+
+    def test_non_object_previous_model_triggers_a_rebuild(self) -> None:
+        result = self._reindex_with_previous_model_text("[]")
+        self._assert_rebuilt(result)
+
+    def test_an_empty_previous_model_triggers_a_rebuild(self) -> None:
+        """``{}`` has no collections, so it is a stale payload rather than an empty model.
+
+        It previously loaded as an empty model and was harmless for the same
+        reason -- nothing reusable, so every file was reparsed anyway. Treating it
+        as absent makes that explicit instead of incidental.
+        """
+        result = self._reindex_with_previous_model_text("{}")
+        self._assert_rebuilt(result)
+
+    def test_a_payload_missing_a_collection_triggers_a_rebuild(self) -> None:
+        """A model written by an older schema must not be reused.
+
+        Reusing it carries forward only the collections it happened to have, so
+        the new model would be silently missing one while the manifest reported
+        every file unchanged. ``problems()`` cannot catch that: a model that never
+        held the entities has no dangling references either, so it validates while
+        being incomplete.
+        """
+        with TempRepository() as repo:
+            pipeline = OfflinePipeline()
+            first = pipeline.index(repo.root, index_dir=repo.index_dir)
+            self.assertGreater(first.ir.counts()["bindings"], 0)
+
+            path = repo.index_dir / "ir.json"
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload.pop("bindings")  # the shape 0.1.0 wrote
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            second = pipeline.index(repo.root, index_dir=repo.index_dir)
+
+        self.assertEqual(second.validation_problems, [])
+        # Rebuilt rather than reused, so the collection is complete again.
+        self.assertEqual(second.stats.files_parsed, 7)
+        self.assertEqual(
+            second.ir.counts()["bindings"], first.ir.counts()["bindings"]
+        )
+
+    def test_valid_previous_model_is_still_reused(self) -> None:
+        """The guard must not over-catch: a good model still enables reuse.
+
+        A defensive guard that quietly stopped reusing valid models would be a
+        worse defect than the one it fixed, and silent.
+        """
+        with TempRepository() as repo:
+            pipeline = OfflinePipeline()
+            pipeline.index(repo.root, index_dir=repo.index_dir)
+            second = pipeline.index(repo.root, index_dir=repo.index_dir)
+
+        self.assertEqual(second.validation_problems, [])
+        self.assertEqual(second.stats.files_reused, 7)
+        self.assertEqual(second.stats.files_parsed, 0)
+
+    def test_recovery_leaves_the_previous_artifacts_intact(self) -> None:
+        """A malformed model is replaced by a good one, atomically."""
+        with TempRepository() as repo:
+            pipeline = OfflinePipeline()
+            first = pipeline.index(repo.root, index_dir=repo.index_dir)
+            (repo.index_dir / "ir.json").write_text('{"files": "bad"}', encoding="utf-8")
+            second = pipeline.index(repo.root, index_dir=repo.index_dir)
+
+            published = json.loads(
+                (repo.index_dir / "ir.json").read_text(encoding="utf-8")
+            )
+            leftovers = [
+                p.name for p in repo.index_dir.iterdir() if p.name.startswith(".tmp-")
+            ]
+
+        self.assertEqual(second.validation_problems, [])
+        self.assertEqual(second.ir.counts(), first.ir.counts())
+        self.assertEqual(published["model_version"], second.version.id)
+        self.assertEqual(leftovers, [])
+
+
+class BindingPersistenceTests(unittest.TestCase):
+    """Bindings must survive the round trip through ``ir.json`` and through reuse (D34)."""
+
+    def test_bindings_are_written_to_ir_json(self) -> None:
+        with TempRepository() as repo:
+            result = OfflinePipeline().index(repo.root, index_dir=repo.index_dir)
+            payload = json.loads(
+                (repo.index_dir / "ir.json").read_text(encoding="utf-8")
+            )
+
+        self.assertIn("bindings", payload)
+        self.assertGreater(len(payload["bindings"]), 0)
+        self.assertEqual(len(payload["bindings"]), result.ir.counts()["bindings"])
+        for raw in payload["bindings"]:
+            for key in (
+                "id", "file_id", "bound_name", "type_name", "scope",
+                "location", "model_version",
+            ):
+                self.assertIn(key, raw)
+
+    def test_bindings_survive_incremental_reuse(self) -> None:
+        """An unchanged file's bindings must be carried forward, not lost.
+
+        The bucket in ``_group_by_file`` is the mechanism; without it a reindex
+        would quietly drop every binding outside the one file that changed.
+        """
+        with TempRepository() as repo:
+            pipeline = OfflinePipeline()
+            first = pipeline.index(repo.root, index_dir=repo.index_dir)
+            self.assertGreater(first.ir.counts()["bindings"], 0)
+
+            repo.append("models/payment.py", "\n# touched\n")
+            second = pipeline.index(repo.root, index_dir=repo.index_dir)
+
+        self.assertGreater(second.stats.files_reused, 0)
+        self.assertEqual(
+            second.ir.counts()["bindings"], first.ir.counts()["bindings"]
+        )
+
+    def test_reused_bindings_carry_the_active_version(self) -> None:
+        """Re-stamping must reach bindings, or the model holds mixed versions."""
+        with TempRepository() as repo:
+            pipeline = OfflinePipeline()
+            pipeline.index(repo.root, index_dir=repo.index_dir)
+            repo.append("models/payment.py", "\n# touched\n")
+            second = pipeline.index(repo.root, index_dir=repo.index_dir)
+
+        version = second.version.id
+        self.assertTrue(version)
+        for binding in second.ir.bindings:
+            self.assertEqual(binding.model_version, version, binding.id)
+
+    def test_bindings_point_at_symbols_in_the_same_model(self) -> None:
+        """A binding's enclosing symbol must exist, or validation would reject it."""
+        result = OfflinePipeline().index(
+            DEMO_REPO, index_dir=empty_temp_dir(), persist=False
+        )
+        symbol_ids = {s.id for s in result.ir.symbols}
+        for binding in result.ir.bindings:
+            with self.subTest(binding=binding.bound_name):
+                self.assertIn(binding.enclosing_symbol_id, symbol_ids)
+
+
+class ResolutionIntegrationTests(unittest.TestCase):
+    """Stage 6 wired into the pipeline: the end-to-end path (spec section 13).
+
+    The ladder itself is tested in ``tests/semantic/test_resolver.py`` against
+    in-memory models. These tests exist to prove the *wiring*: that resolution
+    runs in the right place, that its result is persisted, that it survives
+    incremental reuse, and that it changes the version identity (D27).
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.unresolved = OfflinePipeline().index(
+            DEMO_REPO, index_dir=empty_temp_dir(), persist=False
+        )
+        cls.resolved = OfflinePipeline().index(
+            DEMO_REPO, index_dir=empty_temp_dir(), persist=False, resolve=True
+        )
+
+    # -- the spec's own example -------------------------------------------
+
+    def test_the_spec_chain_resolves_end_to_end(self) -> None:
+        """Section 7's expected chain must be walkable, not only declared.
+
+        Every hop here is reached through a *bound* receiver, which is exactly
+        what D23/D34 exist to make possible. Before they landed, this chain could
+        only be asserted through module-level IMPORTS edges.
+        """
+        symbols = {s.id: s for s in self.resolved.ir.symbols}
+        calls = {
+            (
+                symbols[r.source_symbol_id].qualified_name,
+                symbols[r.target_symbol_id].qualified_name,
+            )
+            for r in self.resolved.ir.relationships
+            if r.relationship_type is RelationshipType.CALLS and r.is_resolved
+        }
+        expected = [
+            (
+                "api.checkout_controller:CheckoutController.handle",
+                "services.checkout_service:CheckoutService.checkout",
+            ),
+            (
+                "services.checkout_service:CheckoutService.checkout",
+                "services.payment_service:PaymentService.process",
+            ),
+            (
+                "services.payment_service:PaymentService.process",
+                "services.payment_service:PaymentService.validate",
+            ),
+            (
+                "services.payment_service:PaymentService.process",
+                "repositories.payment_repository:PaymentRepository.save",
+            ),
+        ]
+        for hop in expected:
+            with self.subTest(hop=hop[1]):
+                self.assertIn(hop, calls)
+
+    def test_resolution_reduces_unresolved_edges(self) -> None:
+        before = sum(
+            1
+            for r in self.unresolved.ir.relationships
+            if r.resolution_status is ResolutionStatus.UNRESOLVED
+        )
+        after = sum(
+            1
+            for r in self.resolved.ir.relationships
+            if r.resolution_status is ResolutionStatus.UNRESOLVED
+        )
+        self.assertGreater(before, after)
+        self.assertEqual(after, 0)
+
+    def test_every_demo_edge_resolves_exactly(self) -> None:
+        statuses = {r.resolution_status for r in self.resolved.ir.relationships}
+        self.assertEqual(statuses, {ResolutionStatus.RESOLVED_EXACT})
+
+    # -- structural guarantees --------------------------------------------
+
+    def test_no_resolved_edge_points_at_a_missing_symbol(self) -> None:
+        """AC5: the resolver never invents a target."""
+        symbol_ids = {s.id for s in self.resolved.ir.symbols}
+        for relationship in self.resolved.ir.relationships:
+            if relationship.is_resolved:
+                with self.subTest(rel=relationship.id):
+                    self.assertIn(relationship.target_symbol_id, symbol_ids)
+
+    def test_resolution_does_not_change_the_edge_count(self) -> None:
+        self.assertEqual(
+            len(self.unresolved.ir.relationships),
+            len(self.resolved.ir.relationships),
+        )
+
+    def test_resolution_does_not_change_the_symbol_count(self) -> None:
+        self.assertEqual(
+            len(self.unresolved.ir.symbols), len(self.resolved.ir.symbols)
+        )
+
+    def test_the_resolved_model_is_valid(self) -> None:
+        self.assertEqual(self.resolved.validation_problems, [])
+        self.assertEqual(self.resolved.ir.problems(), [])
+
+    def test_reused_edges_are_resolved_too(self) -> None:
+        """A no-change reindex must not silently drop back to unresolved."""
+        with TempRepository() as repo:
+            OfflinePipeline().index(repo.root, index_dir=repo.index_dir, resolve=True)
+            second = OfflinePipeline().index(
+                repo.root, index_dir=repo.index_dir, resolve=True
+            )
+        unresolved = [
+            r
+            for r in second.ir.relationships
+            if r.resolution_status is ResolutionStatus.UNRESOLVED
+        ]
+        self.assertEqual(unresolved, [])
+
+    # -- version identity (D27) -------------------------------------------
+
+    def test_resolving_mints_a_different_version(self) -> None:
+        """Same bytes, different pipeline, therefore a different model."""
+        self.assertNotEqual(self.unresolved.version.id, self.resolved.version.id)
+
+    def test_the_fingerprint_records_which_pipeline_ran(self) -> None:
+        self.assertNotEqual(
+            self.unresolved.version.pipeline_fingerprint,
+            self.resolved.version.pipeline_fingerprint,
+        )
+        self.assertIn("semantic=absent", self.unresolved.version.pipeline_fingerprint)
+        self.assertIn("semantic=stages6-8", self.resolved.version.pipeline_fingerprint)
+
+    def test_resolution_is_deterministic_across_runs(self) -> None:
+        again = OfflinePipeline().index(
+            DEMO_REPO, index_dir=empty_temp_dir(), persist=False, resolve=True
+        )
+        self.assertEqual(again.version.id, self.resolved.version.id)
+
+    def test_resolving_is_off_by_default(self) -> None:
+        """M1's documented output stays reproducible unless asked otherwise."""
+        self.assertIsNone(self.unresolved.resolution)
+        self.assertFalse(self.unresolved.was_resolved)
+        self.assertTrue(self.resolved.was_resolved)
+
+    # -- persistence ------------------------------------------------------
+
+    def test_resolution_is_written_to_ir_json(self) -> None:
+        with TempRepository() as repo:
+            result = OfflinePipeline().index(
+                repo.root, index_dir=repo.index_dir, resolve=True
+            )
+            payload = json.loads(
+                (repo.index_dir / "ir.json").read_text(encoding="utf-8")
+            )
+        written = payload["relationships"]
+        resolved = [
+            r for r in written if r["resolution_status"] == "RESOLVED_EXACT"
+        ]
+        self.assertEqual(len(resolved), len(result.ir.relationships))
+        self.assertTrue(
+            all("candidate_symbol_ids" in r for r in written),
+            "candidate_symbol_ids must round-trip even when empty",
+        )
+
+    def test_ambiguous_candidates_round_trip(self) -> None:
+        """The edge case the persistence layer could quietly drop."""
+        with TempRepository() as repo:
+            OfflinePipeline().index(repo.root, index_dir=repo.index_dir, resolve=True)
+            first = json.loads(
+                (repo.index_dir / "ir.json").read_text(encoding="utf-8")
+            )
+        # demo_repo has no ambiguous edge, so the field must at least survive as
+        # an empty list rather than being omitted; a missing key would make the
+        # rehydration guard reject the payload on the next run.
+        self.assertTrue(all("candidate_symbol_ids" in r for r in first["relationships"]))
+
+    def test_report_is_exposed_on_the_result(self) -> None:
+        payload = self.resolved.resolution.to_dict()
+        self.assertGreater(payload["resolved"], 0)
+        self.assertEqual(payload["unresolved"], 0)
+        self.assertIn("by_rung", payload)
+
+    def test_edgecase_repo_resolves_without_problems(self) -> None:
+        """The stress fixture must resolve and stay valid, ambiguity included."""
+        result = OfflinePipeline().index(
+            EDGECASE_REPO, index_dir=empty_temp_dir(), persist=False, resolve=True
+        )
+        self.assertEqual(result.validation_problems, [])
+        symbol_ids = {s.id for s in result.ir.symbols}
+        for relationship in result.ir.relationships:
+            if relationship.is_resolved:
+                self.assertIn(relationship.target_symbol_id, symbol_ids)
+            if relationship.resolution_status is ResolutionStatus.AMBIGUOUS:
+                self.assertTrue(relationship.candidate_symbol_ids)
+                self.assertTrue(
+                    relationship.target_symbol_id.startswith("unresolved:")
+                )
 
 
 if __name__ == "__main__":

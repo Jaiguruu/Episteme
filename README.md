@@ -61,7 +61,7 @@ from maat.offline import index_repository
 
 result = index_repository("path/to/repo")   # writes <repo>/.maat/{manifest,ir}.json
 
-print(result.version.id)                     # mv_4c0e0541d4d748b2
+print(result.version.id)                     # identifies this build's model version
 print(len(result.ir.symbols), len(result.ir.relationships))   # 26 42
 print(result.ir.problems())                  # [] means the model is valid
 ```
@@ -89,6 +89,7 @@ vector indexes are later projected:
 | `files` | every scanned file: language, content hash, parse status |
 | `symbols` | modules, classes, interfaces, enums, functions, methods, fields |
 | `relationships` | `CONTAINS`, `IMPORTS`, `CALLS`, `INHERITS` |
+| `bindings` | a name bound to a type in a scope — the raw material for resolving a member call |
 | `evidence` | the source span backing each symbol |
 | `chunks` | token-bounded slices for downstream retrieval |
 | `diagnostics` | parse and extraction failures, with human-readable reasons |
@@ -169,12 +170,19 @@ isolated: the rest of the repository stays queryable.
 
 ## Verified behaviour
 
-**137 tests, all passing** (`python tests/run_all.py`, ~15 s).
+**327 tests, all passing** (`python tests/run_all.py`, ~15 s).
 
-| Repository | Scanned | Symbols | Relationships | Model version |
-|---|---:|---:|---:|---|
-| `tests/fixtures/demo_repo` | 7 files | 26 | 42 | `mv_4c0e0541d4d748b2` |
-| `tests/fixtures/edgecase_repo` | 142 of 156 | 5,044 | 5,398 | `mv_72dfca7b6037c080` |
+| Repository | Scanned | Symbols | Relationships | Bindings |
+|---|---:|---:|---:|---:|
+| `tests/fixtures/demo_repo` | 7 files | 26 | 42 | 15 |
+| `tests/fixtures/edgecase_repo` | 142 files | 5,044 | 5,398 | 1 |
+
+`edgecase_repo` holds 155 files in total: 142 scanned, 8 excluded as files (1 binary,
+3 generated, 4 ignored) and 5 inside 4 pruned directories.
+
+Model versions are deliberately not quoted. A `model_version` is a digest of the raw
+bytes of every scanned file, so it varies with line-ending policy and with any fixture
+edit — see [`docs/testing.md` §4](docs/testing.md#do-not-assert-on-absolute-hashes-or-versions).
 
 The edge-case repository exercises 18 grammars and deliberately includes malformed
 files, BOM and CRLF line endings, empty files, a 197 KB single file, nesting past
@@ -229,13 +237,27 @@ docs/               contributor reference
 
 ## Scope
 
-M1 covers Stages 0–5: snapshot, change detection, parsing, extraction, and the
-semantic IR.
+Stages 0–6 are implemented: snapshot, change detection, parsing, extraction, the
+semantic IR, and **symbol and relationship resolution** (`maat/semantic/`, Stage 6
+of M2). Resolution is opt-in — pass `resolve=True` to `index_repository` — so the
+unresolved output of M1 stays reproducible bit-for-bit.
 
-**Deliberately not included yet:** reference resolution (every reference is emitted
-as `UNRESOLVED` by design — M1 observes, it does not infer), the graph / FTS5 /
-vector projections, retrieval, reasoning, and the MCP tool layer. Those are M2–M6
-in [`ROADMAP.md`](ROADMAP.md).
+```python
+from maat.offline import index_repository
+
+model = index_repository("path/to/repo", resolve=True)
+print(model.resolution.to_dict()["by_rung"])   # which rung resolved what, and how often
+```
+
+**Deliberately not included yet:** relationship validation as a first-class report
+(Stage 7), the canonical model store (Stage 8), the graph / FTS5 / vector
+projections, retrieval, reasoning, and the MCP tool layer. Those are M2–M6 in
+[`ROADMAP.md`](ROADMAP.md).
+
+Every reference the resolver cannot place is left explicitly `UNRESOLVED` rather
+than guessed, and an ambiguous one is marked `AMBIGUOUS` with the candidates it
+could not choose between — see
+[`docs/decisions.md`](docs/decisions.md) D24 and D26.
 
 ---
 

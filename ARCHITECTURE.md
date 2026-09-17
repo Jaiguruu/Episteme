@@ -67,8 +67,8 @@ rewritten or thrown away without touching a single line of the semantic tier.
 maat/core/                    language-neutral contracts. No I/O, no parsing.
   enums.py           174      closed vocabularies — every value is a persisted contract
   locations.py       104      SourceSpan: line 1-based, column 0-based, end exclusive
-  ids.py             150      content-addressed stable IDs
-  contracts.py       654      FileRecord, Symbol, Relationship, Evidence,
+  ids.py             178      content-addressed stable IDs
+  contracts.py       732      FileRecord, Symbol, Relationship, Binding, Evidence,
                               SemanticChunk, ModelVersion, SemanticIR, ...
   serialization.py   112      canonical JSON, atomic writes, hash combination
 
@@ -81,8 +81,8 @@ maat/offline/                 the pipeline
   extractors/
     base.py          316      the fact vocabulary + the Extractor protocol
     query_extractor.py 623    one extractor that serves every language
-  ir_builder.py      483      facts → validated Symbol/Relationship/Evidence/Chunk
-  pipeline.py        579      orchestration, incremental reuse, atomic publication
+  ir_builder.py      537      facts → validated Symbol/Relationship/Binding/Evidence/Chunk
+  pipeline.py        670      orchestration, incremental reuse, atomic publication
 ```
 
 `maat/core/` depends on nothing else in the project. `maat/offline/` depends on
@@ -104,6 +104,7 @@ ID is self-describing:
 | `rel_` | `Relationship` | source ID, relationship type, target key, line, column |
 | `ev_` | `Evidence` | symbol ID, source span |
 | `chunk_` | `SemanticChunk` | symbol ID, chunk type |
+| `bind_` | `Binding` | path, scope, bound name, enclosing qualified name, line, column |
 | `mv_` | `ModelVersion` | the digest of all file content hashes |
 | `unresolved:` | placeholder target | the raw target text |
 
@@ -120,13 +121,14 @@ to a different file changes its identity**, so a rename *is* reparsed (D16).
 
 ### 4.2 The model
 
-`SemanticIR` holds six collections and is the source of truth:
+`SemanticIR` holds seven collections and is the source of truth:
 
 | Collection | Contents |
 |---|---|
 | `files` | every scanned file: language, content hash, parse status |
 | `symbols` | modules, classes, interfaces, enums, functions, methods, fields |
 | `relationships` | `CONTAINS`, `IMPORTS`, `CALLS`, `INHERITS` |
+| `bindings` | a name bound to a type in a scope — the raw material for resolving a member call |
 | `evidence` | the source span backing each symbol |
 | `chunks` | token-bounded slices for later retrieval |
 | `diagnostics` | everything the parser or extractor could not fully handle |
@@ -282,9 +284,16 @@ meaning, exactly as it does today. M2 upgrades edges rather than changing the
 schema, because the `ResolutionStatus` vocabulary, the confidence policy and the
 relationship contract already exist.
 
-Two known prerequisites for M2 are documented in
-[`docs/decisions.md`](docs/decisions.md): bindings are extracted but never
-persisted, and version identity needs a pipeline fingerprint once resolution can
-change the model without changing any file.
+One known prerequisite for M2 remains, and it is documented in
+[`docs/decisions.md`](docs/decisions.md): version identity needs a pipeline
+fingerprint once resolution can change the model without changing any file.
+
+The other — bindings being extracted but never persisted — is **closed**. Bindings
+are now a collection in the model (D34), so Stage 6 has the raw material it needs.
+A consequence worth knowing: adding a collection made the version-ID collision in
+D27 concrete rather than hypothetical, because an older model and a newer one over
+identical file content shared a version ID. `load_previous_ir` now treats a payload
+missing a collection as stale and rebuilds, which closes the silent-gap case;
+D27 remains open for the version ID itself.
 
 See [`ROADMAP.md`](ROADMAP.md) for status and where to contribute.

@@ -10,7 +10,7 @@ How the test suite is organised and how to add to it.
 third-party test dependency.
 
 ```bash
-python tests/run_all.py              # 137 tests, ~15 s
+python tests/run_all.py              # 327 tests, ~15 s
 python tests/run_all.py -v           # verbose
 python tests/run_all.py offline      # only tests whose id contains "offline"
 python tests/run_all.py ir pipeline  # several filters at once
@@ -35,17 +35,26 @@ what makes it usable directly as a CI gate.
 tests/
   run_all.py          the runner
   support.py          shared fixtures and helpers
+  test_docs.py            3 tests   documentation hygiene guard (D33)
+  core/
+    test_enums.py         9 tests   the closed vocabularies
+    test_locations.py    18 tests   SourceSpan conventions and validation
+    test_contracts.py    63 tests   entity contracts, referential integrity
+    test_serialization.py 24 tests  canonical JSON, atomic writes, hash combining
   offline/
-    test_snapshot.py   16 tests   §8  Stage 1
-    test_changes.py    19 tests   §9  Stage 2
-    test_parser.py     20 tests   §10 Stage 3
-    test_extractor.py  16 tests   §11 Stage 4
-    test_ir.py         31 tests   §12 Stage 5
-    test_pipeline.py   35 tests   end-to-end, incremental, publication, §30
+    test_snapshot.py     16 tests   §8  Stage 1
+    test_changes.py      19 tests   §9  Stage 2
+    test_parser.py       20 tests   §10 Stage 3
+    test_extractor.py    16 tests   §11 Stage 4
+    test_ir.py           41 tests   §12 Stage 5
+    test_pipeline.py     46 tests   end-to-end, incremental, publication, §30, model loader
   fixtures/
     demo_repo/          7 files, including one deliberately broken
-    edgecase_repo/      156 files, 18 grammars, deliberate edge cases
+    edgecase_repo/      142 scanned files, 18 grammars, deliberate edge cases
 ```
+
+`tests/core/` needs its own `__init__.py`, per the note above; `tests/test_docs.py`
+sits at the top level and needs none.
 
 One `unittest.TestCase` subclass per concern; module-level helper functions and
 constants above the classes.
@@ -127,6 +136,14 @@ Content hashes and `model_version` values change whenever a fixture file changes
 and they differ across environments. Every `mv_*` literal in the suite is a
 synthetic value (`"mv_1"`, `"mv_2"`, `"mv_a"`) used to test *relations*.
 
+The mechanism is worth stating, because it explains why this is not a matter of
+taste. A `model_version` is a digest of the **raw bytes** of every scanned file
+(`core.ids.model_version_id` over `core.serialization.combine_hashes`), and content
+hashing is deliberately byte-level (D9). Line endings are bytes. So a checkout with
+`core.autocrlf=true` materialises the `.py` fixtures as CRLF and derives a different
+version than an LF checkout does — from identical source, yielding identical symbols
+and relationships. Nothing is wrong; the value simply does not travel between machines.
+
 Assert the relation, not the number:
 
 ```python
@@ -135,8 +152,10 @@ version = result.version.id
 for entity in result.ir.symbols:
     self.assertEqual(entity.model_version, version)
 
-# fragile — breaks the moment a fixture byte changes
-self.assertEqual(result.version.id, "mv_4c0e0541d4d748b2")
+# fragile — the placeholder below is deliberately not a digest.
+# Any concrete value breaks the moment a fixture byte changes, or a
+# different checkout materialises the fixtures with different line endings.
+self.assertEqual(result.version.id, "mv_<digest>")
 ```
 
 ---
@@ -176,14 +195,23 @@ def test_reused_file_keeps_its_degraded_status(self) -> None:
 ## 6. The baseline
 
 ```text
-137 tests, 33 classes, 6 files
+327 tests, 66 classes, 12 files
 python tests/run_all.py  ->  PASS, ~15 s
 ```
 
-| Fixture | Scanned | Symbols | Relationships | Model version |
-|---|---:|---:|---:|---|
-| `demo_repo` | 7 | 26 | 42 | `mv_4c0e0541d4d748b2` |
-| `edgecase_repo` | 142 of 156 | 5,044 | 5,398 | `mv_72dfca7b6037c080` |
+The three figures are derived, not hand-maintained — `python tools/count_tests.py`
+prints exactly this line. It walks the AST rather than importing, because importing
+would report a different number from the one `unittest` discovers if a module failed
+to load. Re-derive before editing any count in this file.
+
+| Fixture | Scanned | Symbols | Relationships | Bindings |
+|---|---:|---:|---:|---:|
+| `demo_repo` | 7 | 26 | 42 | 15 |
+| `edgecase_repo` | 142 | 5,044 | 5,398 | 1 |
+
+`edgecase_repo` holds 155 files in total: 142 scanned, 8 excluded as files (1 binary,
+3 generated, 4 ignored) and 5 inside 4 pruned directories. Model versions are
+deliberately not listed — see §4 for why they do not travel between checkouts.
 
 `edgecase_repo` statuses: `OK 128`, `PARTIAL 3`, `FAILED 6`, `EMPTY 3`,
 `UNSUPPORTED 2`. The 9 degraded files are isolated and named.
@@ -202,7 +230,9 @@ Full detail in [`verification.md`](verification.md). In short:
 * **`maat/core/` has no test module.** 1,161 lines covered only indirectly.
   `combine_hashes` in particular has zero references in `tests/` despite deriving
   every `version_id`.
-* **The model loader is not defensive.** A structurally invalid `ir.json` raises
-  out of the index call. No test covers it.
 * **`REFERENCES` and `IMPLEMENTS`** are neither produced nor tested.
 * **Stages 6 and beyond** have no tests, because they do not exist.
+
+The model loader was previously listed here as an untested defect. It is now covered by
+`PreviousModelLoaderTests` in `tests/offline/test_pipeline.py`, which asserts that a
+malformed previous model rebuilds rather than aborting the run.
