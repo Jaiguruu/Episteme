@@ -170,7 +170,7 @@ isolated: the rest of the repository stays queryable.
 
 ## Verified behaviour
 
-**327 tests, all passing** (`python tests/run_all.py`, ~15 s).
+**278 tests, all passing** (`python tests/run_all.py`, ~15 s).
 
 | Repository | Scanned | Symbols | Relationships | Bindings |
 |---|---:|---:|---:|---:|
@@ -237,26 +237,20 @@ docs/               contributor reference
 
 ## Scope
 
-Stages 0–6 are implemented: snapshot, change detection, parsing, extraction, the
-semantic IR, and **symbol and relationship resolution** (`maat/semantic/`, Stage 6
-of M2). Resolution is opt-in — pass `resolve=True` to `index_repository` — so the
-unresolved output of M1 stays reproducible bit-for-bit.
+Stages 0–5 are implemented: snapshot, change detection, parsing, extraction and
+the semantic IR. Bindings are captured **and** persisted — `BindingFact` from
+Tier 2 becomes a `Binding` entity in the model, so the raw material Stage 6 needs
+is already there.
 
-```python
-from maat.offline import index_repository
-
-model = index_repository("path/to/repo", resolve=True)
-print(model.resolution.to_dict()["by_rung"])   # which rung resolved what, and how often
-```
-
-**Deliberately not included yet:** relationship validation as a first-class report
+**Not yet implemented:** symbol and relationship resolution (Stage 6, the
+`maat/semantic/` package), relationship validation as a first-class report
 (Stage 7), the canonical model store (Stage 8), the graph / FTS5 / vector
 projections, retrieval, reasoning, and the MCP tool layer. Those are M2–M6 in
 [`ROADMAP.md`](ROADMAP.md).
 
-Every reference the resolver cannot place is left explicitly `UNRESOLVED` rather
-than guessed, and an ambiguous one is marked `AMBIGUOUS` with the candidates it
-could not choose between — see
+Every reference the pipeline observes is left explicitly `UNRESOLVED` rather than
+guessed — M1 observes, it does not infer. The `ResolutionStatus` vocabulary,
+including `AMBIGUOUS`, and the contracts it will need already exist; see
 [`docs/decisions.md`](docs/decisions.md) D24 and D26.
 
 ---

@@ -284,16 +284,19 @@ meaning, exactly as it does today. M2 upgrades edges rather than changing the
 schema, because the `ResolutionStatus` vocabulary, the confidence policy and the
 relationship contract already exist.
 
-One known prerequisite for M2 remains, and it is documented in
-[`docs/decisions.md`](docs/decisions.md): version identity needs a pipeline
-fingerprint once resolution can change the model without changing any file.
+Two prerequisites for M2 remain, and both are documented in
+[`docs/decisions.md`](docs/decisions.md):
 
-The other — bindings being extracted but never persisted — is **closed**. Bindings
-are now a collection in the model (D34), so Stage 6 has the raw material it needs.
-A consequence worth knowing: adding a collection made the version-ID collision in
-D27 concrete rather than hypothetical, because an older model and a newer one over
-identical file content shared a version ID. `load_previous_ir` now treats a payload
-missing a collection as stale and rebuilds, which closes the silent-gap case;
-D27 remains open for the version ID itself.
+1. **Version identity needs a pipeline fingerprint.** `model_version_id` is
+   currently a pure function of file content. That is correct for M1 but breaks
+   once resolution can change the model without changing any file, because one
+   content hash would map to two different models sharing a version ID (D27).
+2. **Bindings must be persisted before Stage 6 can consume them.** This one is
+   **closed**: bindings are now a collection in the model (D34), so Stage 6 has
+   the raw material it needs. A consequence worth knowing is that adding a
+   collection made the version-ID collision in D27 concrete rather than
+   hypothetical, and `load_previous_ir` now treats a payload missing a collection
+   as stale and rebuilds — which closes the silent-gap case, but leaves the
+   version ID itself colliding until the fingerprint lands.
 
 See [`ROADMAP.md`](ROADMAP.md) for status and where to contribute.

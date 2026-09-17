@@ -358,8 +358,7 @@ class Binding:
     model_version: str
     enclosing_symbol_id: str | None = None
     """The symbol the binding occurs in, when one was identified. For an
-    ``INSTANCE`` binding this is usually the constructor, which is why resolution
-    must fall back from a call site's method to its class's constructor."""
+    ``INSTANCE`` binding this is usually the constructor."""
 
     def problems(self) -> list[str]:
         issues: list[str] = []
@@ -514,7 +513,6 @@ class ModelVersion:
     degraded_file_count: int = 0
     diagnostics_count: int = 0
     binding_count: int = 0
-    pipeline_fingerprint: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -528,7 +526,6 @@ class ModelVersion:
             "degraded_file_count": self.degraded_file_count,
             "diagnostics_count": self.diagnostics_count,
             "binding_count": self.binding_count,
-            "pipeline_fingerprint": self.pipeline_fingerprint,
         }
 
 

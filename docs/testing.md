@@ -10,7 +10,7 @@ How the test suite is organised and how to add to it.
 third-party test dependency.
 
 ```bash
-python tests/run_all.py              # 327 tests, ~15 s
+python tests/run_all.py              # 278 tests, ~15 s
 python tests/run_all.py -v           # verbose
 python tests/run_all.py offline      # only tests whose id contains "offline"
 python tests/run_all.py ir pipeline  # several filters at once
@@ -195,7 +195,7 @@ def test_reused_file_keeps_its_degraded_status(self) -> None:
 ## 6. The baseline
 
 ```text
-327 tests, 66 classes, 12 files
+278 tests, 54 classes, 11 files
 python tests/run_all.py  ->  PASS, ~15 s
 ```
 

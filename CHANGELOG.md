@@ -27,27 +27,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **A dedicated test module for `maat/core/`.** `tests/core/` adds 114 tests across
   `test_enums.py`, `test_locations.py`, `test_contracts.py` and
   `test_serialization.py`, covering behaviour that until now was only exercised
-  indirectly. The suite is 275 tests, up from 137.
+  indirectly. The suite is 278 tests, up from 137.
 - **A guard against documentation drift.** `tests/test_docs.py` fails the suite if a
   concrete `model_version` value is quoted in any tracked document (D33), since a
   version ID is a raw-byte digest and does not reproduce across line-ending policies.
 - **`tools/count_tests.py`,** which derives the test/class/file figures the docs quote
   by walking the AST. The counts were hand-maintained and had drifted — the documented
   class total was 50 against a real 53, and two per-file rows were wrong.
-- **Stage 6: symbol and relationship resolution** (`maat/semantic/`). A new sibling
-  package resolves observed references to real symbols through a nine-rung precedence
-  ladder (D24), so an edge's status *is* its explanation. On `demo_repo` every one of
-  the 42 edges resolves exactly and the spec's §7 chain is now walkable as real
-  `CALLS` edges rather than only as module imports; on `edgecase_repo` the 494
-  initially-unresolved edges become 177 unresolved and 62 explicitly ambiguous. The
-  resolver never invents a target (AC5, asserted) and never guesses between candidates
-  (AC3) — ambiguity is recorded with a bounded candidate list instead.
-- **A pipeline fingerprint on version identity (D27).** A version ID is now derived
-  from file content *and* the identity of the pipeline that interpreted it. Resolution
-  changes the model without touching a file, so without this a resolved model and an
-  unresolved one built from the same bytes would share a `model_version` ID and
-  incremental reuse would serve the wrong one. `index_repository(..., resolve=True)`
-  is opt-in, so M1's output stays reproducible bit-for-bit.
+- **A rolled-back Stage 6.** An implementation of Stage 6 (symbol and relationship
+  resolution, the `maat/semantic/` package) and its pipeline fingerprint (D27) were
+  built and then reverted, so no part of M2 ships in this tree. The bindings work
+  above is kept: persisting them was a prerequisite for Stage 6, not a piece of it.
+  Stage 6 is a future stage again — see [`ROADMAP.md`](ROADMAP.md).
 
 ### Changed
 
