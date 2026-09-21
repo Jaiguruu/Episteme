@@ -60,7 +60,7 @@ From Python:
 ```python
 from maat.offline import index_repository
 
-result = index_repository("path/to/repo")   # writes <repo>/.maat/{manifest,ir}.json
+result = index_repository("path/to/repo")   # writes <repo>/.maat/{manifest,ir,validation}.json
 
 print(result.version.id)                     # identifies this build's model version
 print(len(result.ir.symbols), len(result.ir.relationships))   # 26 42
@@ -171,7 +171,7 @@ isolated: the rest of the repository stays queryable.
 
 ## Verified behaviour
 
-**355 tests, all passing** (`python tests/run_all.py`, ~15 s).
+**396 tests, all passing** (`python tests/run_all.py`, ~15 s).
 
 | Repository | Scanned | Symbols | Relationships | Bindings |
 |---|---:|---:|---:|---:|
@@ -197,6 +197,34 @@ model is valid: no referential or structural problems
 
 The 9 degraded files are isolated and named; the other 133 are unaffected.
 
+### Validation before publication
+
+A model is validated (Stage 7) before it is written. `validate_ir` returns a
+report rather than raising, and the report is persisted as `validation.json`
+alongside `ir.json` and `manifest.json`. **Only a structural defect blocks
+publication** — a dangling reference, an invalid span, a duplicate edge. An
+unresolved or ambiguous edge is **reported, not rejected**: it is correct
+behaviour (§4.2, D29), so the model still publishes.
+
+```python
+from maat.offline import index_repository
+
+result = index_repository("tests/fixtures/demo_repo", persist=False)
+
+report = result.validation_report
+print(report.is_valid)                  # True — nothing structural blocks publication
+print(report.counts())                  # {'ERROR': 0, 'WARNING': 0, 'INFO': 1}
+print(report.unresolved_relationships)  # 23 — reported, not rejected (D29)
+```
+
+Verified output on `tests/fixtures/demo_repo`:
+
+```text
+True
+{'ERROR': 0, 'WARNING': 0, 'INFO': 1}
+23
+```
+
 > **On timings.** Per-repository durations are not comparable across machines or
 > across cold and warm grammar caches — the edge-case figure in particular
 > includes first-run grammar loading for 18 languages. Treat any single-run
@@ -207,7 +235,7 @@ The 9 degraded files are isolated and named; the other 133 are unaffected.
 ## Project structure
 
 ```text
-maat/core/          contracts, enums, spans, deterministic IDs, serialization
+maat/core/          contracts, enums, spans, deterministic IDs, serialization, validation
 maat/offline/
   languages.py      path → grammar registry (61 languages)
   snapshot.py       traversal, ignore rules, binary sniffing
@@ -281,11 +309,20 @@ gets a different version ID than an unresolved one built from the same bytes
 stays explicitly `UNRESOLVED`; one with several equally plausible targets is
 marked `AMBIGUOUS` with a bounded candidate list, never guessed (D26, D28).
 
-**Not yet implemented:** relationship validation as a first-class report
-(Stage 7), the canonical model store (Stage 8), the graph / FTS5 / vector
-projections, retrieval, reasoning, and the MCP tool layer. Those are M2–M6 in
-[`ROADMAP.md`](ROADMAP.md). The resolution design is recorded in
-[`docs/decisions.md`](docs/decisions.md) D24, D26, D30 and D31.
+**Stage 7 — relationship validation — is implemented.** `maat/core/validation.py`
+holds `validate_ir`, which returns a `ValidationReport` rather than raising, and
+`deduplicate_edges`, an opt-in repair the validator never calls. It does not
+re-implement referential integrity: `SemanticIR.problems()` already covers
+dangling references, duplicate IDs and span validity, so validation calls it
+once and turns each string into a finding. What it adds is duplicate-**edge**
+detection, an orphan check on `evidence.entity_id`, cross-entity `model_version`
+consistency, the machine-readable report, and the severity policy (D37).
+
+**Not yet implemented:** the canonical model store (Stage 8), the graph / FTS5 /
+vector projections, retrieval, reasoning, and the MCP tool layer. Those are
+M2–M6 in [`ROADMAP.md`](ROADMAP.md). The resolution design is recorded in
+[`docs/decisions.md`](docs/decisions.md) D24, D26, D30 and D31, and the
+validation severity policy in D37.
 
 ---
 

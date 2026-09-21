@@ -51,6 +51,7 @@ from ..core.enums import (
     VersionStatus,
 )
 from ..core.serialization import combine_hashes, write_json
+from ..core.validation import validate_ir
 from . import changes as change_detection
 from . import languages
 from .extractors.base import ExtractionFacts
@@ -63,6 +64,9 @@ DEFAULT_INDEX_DIRNAME = ".maat"
 
 MANIFEST_FILENAME = "manifest.json"
 IR_FILENAME = "ir.json"
+#: The Stage 7 validation report (section 14 AC5). Written alongside the model so a
+#: reader can see *why* a model was accepted, not just that it was.
+VALIDATION_FILENAME = "validation.json"
 
 #: Every collection the current schema writes into ``ir.json``.
 #:
@@ -117,7 +121,11 @@ class PipelineResult:
     version: ModelVersion
     stats: PipelineStats = field(default_factory=PipelineStats)
     index_dir: str = ""
+    #: The ERROR messages from the validation report. Retained because callers and
+    #: tests predate the report object and only ever wanted the blocking reasons.
     validation_problems: list[str] = field(default_factory=list)
+    #: The full Stage 7 report (section 14 AC5).
+    validation_report: Any = None
     #: ``None`` when Stage 6 did not run, otherwise the rung-by-rung counts. Typed
     #: loosely on purpose: annotating it as ``ResolutionReport`` would force a
     #: module-scope import of the semantic tier, which D30 exists to prevent.
@@ -144,6 +152,11 @@ class PipelineResult:
         }
         if self.resolution is not None:
             payload["resolution"] = self.resolution.to_dict()
+        if self.validation_report is not None:
+            payload["validation"] = {
+                "valid": self.validation_report.is_valid,
+                "counts": self.validation_report.counts(),
+            }
         return payload
 
 
@@ -522,7 +535,11 @@ class OfflinePipeline:
         # correct today only by accident, because every edge currently carries a name.
         _sort_ir(ir)
 
-        validation = ir.problems()
+        # --- stage 7: validation -------------------------------------------
+        # A structural defect (a dangling reference, an invalid span, a duplicate
+        # edge) blocks publication. An unresolved or ambiguous edge does not: it is
+        # reported and the model still publishes (section 4.2, D29).
+        report = validate_ir(ir)
         version = ModelVersion(
             id=version_id,
             created_at=snapshot.taken_at,
@@ -530,7 +547,7 @@ class OfflinePipeline:
             file_count=len(ir.files),
             symbol_count=len(ir.symbols),
             relationship_count=len(ir.relationships),
-            status=VersionStatus.PUBLISHED if not validation else VersionStatus.FAILED,
+            status=VersionStatus.PUBLISHED if report.is_valid else VersionStatus.FAILED,
             degraded_file_count=sum(1 for f in ir.files if f.is_degraded),
             diagnostics_count=len(ir.diagnostics),
             binding_count=len(ir.bindings),
@@ -551,7 +568,8 @@ class OfflinePipeline:
             version=version,
             stats=stats,
             index_dir=str(index_path),
-            validation_problems=validation,
+            validation_problems=[finding.message for finding in report.errors],
+            validation_report=report,
             resolution=resolution_report,
         )
 
@@ -561,6 +579,7 @@ class OfflinePipeline:
         if persist and result.is_valid:
             write_json(index_path / MANIFEST_FILENAME, manifest_payload(snapshot))
             write_json(index_path / IR_FILENAME, ir.to_dict())
+            write_json(index_path / VALIDATION_FILENAME, report.to_dict())
 
         return result
 

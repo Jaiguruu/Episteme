@@ -7,7 +7,8 @@ when you are deciding whether a decision still holds.
 This is the durable record extracted from the M1 and M2 implementation plans.
 Entries D1–D22 shipped in M1; D23–D31 were taken during M1 planning and are now
 **implemented in M2 (Stage 6)**; D32 (Stage 8) is still planned. D33–D36 were
-taken after M1 shipped — D35 and D36 are implemented in Stage 6.
+taken after M1 shipped — D35 and D36 are implemented in Stage 6, and D37 was
+taken during Stage 7.
 
 ---
 
@@ -76,7 +77,7 @@ taken after M1 shipped — D35 and D36 are implemented in Stage 6.
 | **D31** | Instance receivers as one shared frozenset | `self` / `this` / `cls` is a linguistic fact, not a grammar rule | A hardcoded vocabulary in one file |
 | **D32** | Stage 8 stops short of atomic publication | The pointer switch and rollback are explicitly Stage 12 | `ModelStore` is a stepping stone, not the final store |
 
-Implemented in M2 (Stage 6): **D23–D31**, including **D27** (the pipeline
+Implemented in M2 (Stages 6–7): **D23–D31**, including **D27** (the pipeline
 fingerprint). Still open: **D32** (Stage 8, not started).
 
 ---
@@ -198,9 +199,10 @@ decision:** `ChangeKind`, `RECOVERY_STATEMENT`, `SymbolType.PARAMETER` /
 
 ---
 
-## Part 9 — M2 implementation (Stage 6)
+## Part 9 — M2 implementation (Stages 6–7)
 
 | # | Decision | Rationale | Trade-off accepted |
 |---|---|---|---|
 | **D35** | Resolution is opt-in (`index(..., resolve=False)` by default) | M1's output must stay reproducible bit-for-bit, and resolution changes the version ID (D27). Making it opt-in keeps "what does the offline pipeline produce" a stable question, makes the stage boundary visible at the call site, and lets every existing test keep asserting M1 behaviour without a flag. A separate fingerprint constant records which pipeline ran, so a model is self-describing | Two fingerprints to maintain now that both exist, and a caller who wants the resolved model must know to ask for it. A default of `True` would have been friendlier and would have silently changed every documented figure in the repository |
 | **D36** | Follow an unannotated alias one hop when resolving a receiver's type | The common constructor-injection shape records two bindings under one name: the parameter (annotated, `repository: PaymentRepository`) and the attribute (an alias, `self.repository = repository`, recorded as `repository: repository`). Taking the first match by emission order is arbitrary; refusing to follow the alias loses a genuinely resolvable edge (`PaymentService.process → PaymentRepository.save`). The rule is language-neutral — "a type name that is also a bound name is an alias" — and bounded to one hop, so it cannot loop | A resolver that follows aliases can, in principle, follow a wrong one. Bounded to a single hop within the same two scopes (caller body, then constructor), and confirmed by a test that the resulting edge lands on the right method |
+| **D37** | Only structural invalidity blocks publication; unresolved and ambiguous edges are reported as INFO | §4.2 and D29 treat an explicit unresolved edge as correct behaviour, and a validator that rejected it would make M1's own output unpublishable — the default `resolve=False` path leaves every reference unresolved | The report is noisier, and a reader must check severity rather than treating "published" as "perfect" |

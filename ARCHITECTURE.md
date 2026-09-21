@@ -71,6 +71,7 @@ maat/core/                    language-neutral contracts. No I/O, no parsing.
   contracts.py       732      FileRecord, Symbol, Relationship, Binding, Evidence,
                               SemanticChunk, ModelVersion, SemanticIR, ...
   serialization.py   112      canonical JSON, atomic writes, hash combination
+  validation.py      511      Stage 7: validate_ir, ValidationReport, the severity policy (D37)
 
 maat/offline/                 the pipeline
   languages.py       208      61-language registry; extractability derived from disk
@@ -241,6 +242,7 @@ The index is written to `<repo>/.maat/`:
 ```text
 manifest.json    the change-detection baseline. Carries a timestamp.
 ir.json          the model. Byte-for-byte reproducible.
+validation.json  the Stage 7 report: findings, severity counts, whether publication was blocked.
 ```
 
 Writes are atomic: `mkstemp` → `flush` → `fsync` → `os.replace`, and the cleanup
@@ -265,8 +267,13 @@ change, not a refactor.
    `AMBIGUOUS` is a correct answer, not a failure to decide.
 5. **Failure is data.** New entities expose `problems()`; they do not raise on
    invalid input.
-6. **Validation never raises.** Rejection happens by returning problems, before
-   publication.
+6. **Validation never raises, and it does not re-derive.** Rejection happens by
+   returning problems, before publication. `maat/core/validation.py` calls
+   `SemanticIR.problems()` once and turns each string into a finding; it adds only
+   the checks `problems()` does not cover — duplicate edges, orphan evidence,
+   cross-entity version consistency — so referential integrity has one source of
+   truth. Only a structural defect blocks publication; an unresolved edge is
+   reported, not rejected (D29, D37).
 7. **Determinism is a tested property.** Any change to traversal, hashing,
    serialisation or ID derivation needs a test that would catch a regression.
 8. **`model_version` is never an input to an ID.**
@@ -280,7 +287,7 @@ change, not a refactor.
 
 ```text
 M1  Stages 0–5    snapshot → parse → extract → SemanticIR          DONE
-M2  Stages 6–8    resolution → validation → canonical model        Stage 6 DONE
+M2  Stages 6–8    resolution → validation → canonical model        Stages 6–7 DONE
 M3  Stages 9–12   graph / FTS5 / vector projections                not started
 M4  Stages 13–18  retrieval and reasoning                          not started
 M5  Stages 19–20  MCP tools and the ReAct agent                    not started

@@ -10,7 +10,7 @@ How the test suite is organised and how to add to it.
 third-party test dependency.
 
 ```bash
-python tests/run_all.py              # 355 tests, ~15 s
+python tests/run_all.py              # 396 tests, ~15 s
 python tests/run_all.py -v           # verbose
 python tests/run_all.py offline      # only tests whose id contains "offline"
 python tests/run_all.py ir pipeline  # several filters at once
@@ -41,13 +41,14 @@ tests/
     test_locations.py    18 tests   SourceSpan conventions and validation
     test_contracts.py    63 tests   entity contracts, referential integrity
     test_serialization.py 24 tests  canonical JSON, atomic writes, hash combining
+    test_validation.py   32 tests   §14 Stage 7 — the validator, the report and the severity policy
   offline/
     test_snapshot.py     16 tests   §8  Stage 1
     test_changes.py      19 tests   §9  Stage 2
     test_parser.py       20 tests   §10 Stage 3
     test_extractor.py    16 tests   §11 Stage 4
     test_ir.py           47 tests   §12 Stage 5
-    test_pipeline.py     62 tests   end-to-end, incremental, publication, §30, model loader, resolution
+    test_pipeline.py     71 tests   end-to-end, incremental, publication, §30, model loader, resolution, validation
   semantic/
     test_ladder.py       21 tests   §13 Stage 6 — the resolution ladder
     test_resolver.py     37 tests   §13 Stage 6 — resolution end to end
@@ -198,7 +199,7 @@ def test_reused_file_keeps_its_degraded_status(self) -> None:
 ## 6. The baseline
 
 ```text
-355 tests, 71 classes, 13 files
+396 tests, 81 classes, 14 files
 python tests/run_all.py  ->  PASS, ~15 s
 ```
 
@@ -230,11 +231,12 @@ one in a test.
 
 Full detail in [`verification.md`](verification.md). In short:
 
-* **`maat/core/` has no test module.** 1,161 lines covered only indirectly.
-  `combine_hashes` in particular has zero references in `tests/` despite deriving
-  every `version_id`.
 * **`REFERENCES` and `IMPLEMENTS`** are neither produced nor tested.
-* **Stages 6 and beyond** have no tests, because they do not exist.
+* **Stage 8 and beyond** have no tests, because they do not exist.
+
+`maat/core/` was previously listed here as having no test module; it now has one
+(§2), and Stage 7's six acceptance criteria are covered by
+`tests/core/test_validation.py`.
 
 The model loader was previously listed here as an untested defect. It is now covered by
 `PreviousModelLoaderTests` in `tests/offline/test_pipeline.py`, which asserts that a

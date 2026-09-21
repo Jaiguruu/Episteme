@@ -11,11 +11,11 @@ For the normative specification see [`SPEC.md`](SPEC.md); for design rationale s
 
 | | |
 |---|---|
-| **Current milestone** | M2 — Stage 6 done; Stages 7–8 next |
-| **Test suite** | 355 tests, all passing (`python tests/run_all.py`, ~15 s) |
+| **Current milestone** | M2 — Stages 6–7 done; Stage 8 next |
+| **Test suite** | 396 tests, all passing (`python tests/run_all.py`, ~15 s) |
 | **Package version** | `0.1.0` |
 | **Languages** | 61 registered · **18 extractable** · 39 parse-only · 4 data/config |
-| **Next** | Stage 7 (relationship validation), then Stage 8 |
+| **Next** | Stage 8 (canonical semantic model) |
 
 `demo_repo` (7 files) produces 26 symbols, 42 relationships and 15 bindings.
 With Stage 6 enabled (`resolve=True`) all 42 edges are `RESOLVED_EXACT` and none
@@ -35,7 +35,7 @@ ordering is strict — each milestone depends on the artifacts of the previous o
 | Milestone | Stages | Theme | Status |
 |---|---|---|---|
 | **M1** | 0–5 | Foundations & offline parser | **done** |
-| **M2** | 6–8 | Resolution & canonical model | **in progress** — Stage 6 done |
+| **M2** | 6–8 | Resolution & canonical model | **in progress** — Stages 6–7 done |
 | **M3** | 9–12 | Index projections (graph, FTS5, vector) | not started |
 | **M4** | 13–18 | Online query pipeline | not started |
 | **M5** | 19–20 | Agent layer (MCP tools, ReAct) | not started |
@@ -51,12 +51,13 @@ Stage 6 will consume.
 
 ### M2 — in progress
 
-**Stage 6 is done.** It landed in the new sibling package `maat/semantic/`, so
-the syntax tier stays free of meaning. It resolves observed references through a
-precedence ladder (D24), so an edge's `resolution_status` is a statement of
-*which fact* justified it rather than an opaque score, and it reads only the
-language-neutral model — symbols, relationships, bindings — never a grammar, so
-it covers all 18 extractable languages without a per-language branch.
+**Stages 6 and 7 are done.** Stage 6 landed in the new sibling package
+`maat/semantic/`, so the syntax tier stays free of meaning. It resolves observed
+references through a precedence ladder (D24), so an edge's `resolution_status`
+is a statement of *which fact* justified it rather than an opaque score, and it
+reads only the language-neutral model — symbols, relationships, bindings — never
+a grammar, so it covers all 18 extractable languages without a per-language
+branch.
 
 Resolution is opt-in: `index(..., resolve=True)`. Off by default, M1's output
 stays reproducible bit for bit. Section 4.2 governs it — an edge that cannot be
@@ -65,10 +66,17 @@ targets is marked `AMBIGUOUS` with a bounded candidate list, never guessed.
 Measured on `demo_repo`, all 42 edges are `RESOLVED_EXACT` and none remain
 unresolved; `edgecase_repo` resolves with 0 validation problems.
 
-The remaining M2 work turns those edges into a validated, queryable surface:
+**Stage 7 is done too.** `maat/core/validation.py` validates a model before it
+is published and writes the report to `validation.json`, alongside `ir.json` and
+`manifest.json`. It aggregates `SemanticIR.problems()` rather than re-deriving
+it, and adds what `problems()` does not cover: duplicate-**edge** detection, an
+orphan check on `evidence.entity_id`, cross-entity `model_version` consistency,
+and a machine-readable report. The severity policy is the whole of it — only a
+structural defect blocks publication; unresolved and ambiguous edges are
+reported as INFO and the model still publishes (D29, D37).
 
-* **Stage 7** — relationship validation: duplicate and orphan detection, a
-  confidence policy, a machine-readable validation report
+One stage of M2 remains:
+
 * **Stage 8** — canonical semantic model: a CRUD/query interface, version
   management, lookup by ID / qualified name / source-target-type / evidence
 

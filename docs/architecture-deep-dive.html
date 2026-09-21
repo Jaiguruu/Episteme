@@ -1740,9 +1740,9 @@ Tier&nbsp;2 knows about grammars and throws its tree away. Tier&nbsp;3 receives 
       <rect x="24" y="552" width="912" height="98" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
       <text x="44" y="572" font-size="11" font-weight="700" fill="#334155">F · sort, validate, build the version, publish</text>
       <text x="44" y="590" font-size="10" fill="#475569">_sort_ir(ir) — files by path · symbols by (qname, line, id) · relationships by (type, src, target, line, col) · bindings by (owner, name, scope, line, col) · evidence · chunks · diagnostics</text>
-      <text x="44" y="607" font-size="10" fill="#475569">validation = ir.problems() &nbsp;→&nbsp; ModelVersion(status = PUBLISHED if valid else FAILED, parent_id = previous_version)</text>
+      <text x="44" y="607" font-size="10" fill="#475569">validation = validate_ir(ir) — aggregates ir.problems(), adds duplicate-edge / orphan / version checks (Stage 7) &nbsp;→&nbsp; ModelVersion(status = PUBLISHED if valid else FAILED, parent_id = previous_version)</text>
       <rect x="44" y="616" width="864" height="26" rx="6" fill="#f0fdfa" stroke="#5eead4" stroke-width="2"/>
-      <text x="58" y="634" font-size="10" fill="#0f766e">if persist and result.is_valid: write_json(manifest) ; write_json(ir) — BOTH atomic, and only for a valid model</text>
+      <text x="58" y="634" font-size="10" fill="#0f766e">if persist and result.is_valid: write_json(manifest) ; write_json(ir) ; write_json(validation) — all three atomic, and only for a valid model</text>
     </svg>
     </div>
 
@@ -1771,7 +1771,7 @@ Tier&nbsp;2 knows about grammars and throws its tree away. Tier&nbsp;3 receives 
     </div>
 
     <h4>Where resolution plugs in</h4>
-    <p>The resolution phase sits between <code>_sort_ir(ir)</code> and <code>ir.problems()</code> — after the model is assembled and ordered, before validation gates publication. That placement
+    <p>The resolution phase sits between <code>_sort_ir(ir)</code> and <code>validate_ir(ir)</code> — after the model is assembled and ordered, before validation gates publication. That placement
     matters: validating a <em>resolved</em> model is what §14 asks for, and publishing only a validated one is what §19 AC2 asks for. It is opt-in
     (<code>resolve=True</code>), so the default path is unchanged.</p>
   </div>
@@ -1893,8 +1893,8 @@ Tier&nbsp;2 knows about grammars and throws its tree away. Tier&nbsp;3 receives 
 
   <rect x="24" y="536" width="912" height="70" rx="8" fill="#fff1f2" stroke="#fecdd3" stroke-width="1.5"/>
   <text x="44" y="556" font-size="11" font-weight="700" fill="#be123c">⑥ pipeline.py — assemble, sort, validate, publish</text>
-  <text x="44" y="574" font-size="10" fill="#be123c">merged into the repo-wide SemanticIR · _sort_ir · ir.problems() == [] · version PUBLISHED</text>
-  <text x="44" y="591" font-size="10" fill="#be123c">written atomically to .maat/manifest.json and .maat/ir.json</text>
+  <text x="44" y="574" font-size="10" fill="#be123c">merged into the repo-wide SemanticIR · _sort_ir · validate_ir(ir).is_valid · version PUBLISHED</text>
+  <text x="44" y="591" font-size="10" fill="#be123c">written atomically to .maat/manifest.json, .maat/ir.json and .maat/validation.json</text>
   <text x="44" y="604" font-size="9.5" fill="#9f1239">42 relationships total across 7 files — 12 CALLS, 19 CONTAINS, 11 IMPORTS. Only CONTAINS is resolved.</text>
 </svg>
 </div>
@@ -1909,11 +1909,11 @@ Tier&nbsp;2 knows about grammars and throws its tree away. Tier&nbsp;3 receives 
 
 <footer>
   <p><strong>Sources.</strong> All diagrams derived by reading the current source tree:
-  <span class="mono">maat/core/</span> (5 modules, 1 161 lines), <span class="mono">maat/offline/</span> (9 modules, ~2 900 lines) and <span class="mono">maat/semantic/</span> (2 modules, the Stage 6 resolver) plus 18 <span class="mono">.scm</span> query files.</p>
+  <span class="mono">maat/core/</span> (6 modules, 1 882 lines), <span class="mono">maat/offline/</span> (9 modules, ~2 900 lines) and <span class="mono">maat/semantic/</span> (2 modules, the Stage 6 resolver) plus 18 <span class="mono">.scm</span> query files.</p>
   <p><strong>Verified figures</strong> are measured, not copied from docs: <span class="mono">demo_repo</span> = 7 files / 26 symbols / 42 relationships (12 CALLS, 19 CONTAINS, 11 IMPORTS) / 15 bindings / 26 evidence / 34 chunks;
-  <span class="mono">edgecase_repo</span> = 142 scanned / 5 044 symbols / 5 398 relationships / 1 binding / 18 languages / 23 diagnostics; 355 tests passing.</p>
+  <span class="mono">edgecase_repo</span> = 142 scanned / 5 044 symbols / 5 398 relationships / 1 binding / 18 languages / 23 diagnostics; 396 tests passing.</p>
   <p><strong>Companions.</strong> <span class="mono">ARCHITECTURE.md</span> (the canonical architecture and its invariants) ·
-  <span class="mono">docs/decisions.md</span> (D1&ndash;D36, with the trade-offs accepted) ·
+  <span class="mono">docs/decisions.md</span> (D1&ndash;D37, with the trade-offs accepted) ·
   <span class="mono">docs/verification.md</span> (criteria &rarr; tests) ·
   <span class="mono">docs/adding-a-language.md</span> (the capture vocabulary).</p>
 </footer>

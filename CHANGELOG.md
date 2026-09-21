@@ -27,7 +27,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **A dedicated test module for `maat/core/`.** `tests/core/` adds 114 tests across
   `test_enums.py`, `test_locations.py`, `test_contracts.py` and
   `test_serialization.py`, covering behaviour that until now was only exercised
-  indirectly. The suite is now 355 tests, up from 137.
+  indirectly.
 - **A guard against documentation drift.** `tests/test_docs.py` fails the suite if a
   concrete `model_version` value is quoted in any tracked document (D33), since a
   version ID is a raw-byte digest and does not reproduce across line-ending policies.
@@ -47,8 +47,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   and one with several equally plausible targets is marked `AMBIGUOUS` with the
   placeholder target kept rather than a guess (D28). Measured on `demo_repo`, all 42
   edges resolve `RESOLVED_EXACT` with none unresolved (before: 19 exact / 23
-  unresolved); `edgecase_repo` resolves with 0 validation problems. The suite is
-  355 tests across 71 classes and 13 files, up from 278 / 54 / 11 — `tests/semantic/`
+  unresolved); `edgecase_repo` resolves with 0 validation problems. `tests/semantic/`
   adds `test_ladder.py` (21 tests) and `test_resolver.py` (37 tests).
 - **A pipeline fingerprint for version identity (D27).** `model_version_id` now
   takes a `pipeline_fingerprint`, and `maat/core/ids.py` carries two constants —
@@ -60,6 +59,34 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   gains a `pipeline_fingerprint` field, and `PipelineResult` gains `resolution` and a
   `was_resolved` property. **Every version ID changes once as a result, so an
   existing `.maat/` index rebuilds on first use.**
+- **Stage 7 — relationship validation.** A new `maat/core/validation.py` (D37)
+  validates a model before it is published. `validate_ir` returns a
+  `ValidationReport` rather than raising, and it does **not** re-implement
+  referential integrity: `SemanticIR.problems()` already covers dangling
+  references, duplicate *IDs*, confidence/status consistency and span validity, so
+  validation calls it once and turns each string into a finding. What it adds is
+  duplicate-**edge** detection (same source, type, target *and* location — D14
+  makes two call sites on one line two distinct relationships), an orphan check on
+  `evidence.entity_id` (which `problems()` checks by `file_id` only), cross-entity
+  `model_version` consistency, the machine-readable report, and the severity
+  policy. The policy is the whole of it: **only a structural defect blocks
+  publication**; an unresolved or ambiguous edge is reported as INFO and the model
+  still publishes (§4.2, D29, D37), and a heuristic edge below `HEURISTIC_MIN =
+  0.5` is a WARNING. Unresolved and ambiguous edges are reported as one finding
+  per category with a count, not one per edge, so a model with 177 unresolved
+  edges does not turn a diagnostic into a payload. `deduplicate_edges` is an
+  opt-in repair the validator never calls — rejecting is the default, so the
+  extractor bug that produced a duplicate is not hidden. The publish block now
+  writes a **third artifact**, `validation.json`, alongside `manifest.json` and
+  `ir.json`; `PipelineResult` gains `validation_report`, and `validation_problems`
+  now holds the ERROR messages. Measured: `demo_repo` with `resolve=True`
+  validates with zero findings; without resolve it is valid with one INFO
+  (`model.unresolved_edges`, 23 unresolved); `edgecase_repo` with `resolve=True`
+  is valid with two INFO (177 unresolved, 62 ambiguous) and 0 errors. Both
+  fixtures produce zero duplicate edges, zero orphans and zero version mismatches
+  — the new checks are guard rails, not active alarms. The suite is now 396 tests
+  across 81 classes and 14 files, up from 355 / 71 / 13 — `tests/core/test_validation.py`
+  adds 32 tests across 9 classes. Spec §14 AC1–AC6 are now covered (was 0 of 6).
 
 ### Changed
 

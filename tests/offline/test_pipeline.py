@@ -9,14 +9,22 @@ from __future__ import annotations
 import json
 import unittest
 from collections import defaultdict
+from unittest import mock
 
 from maat.core.enums import (
+    DiagnosticSeverity,
     ParseStatus,
     RelationshipType,
     ResolutionStatus,
     SymbolType,
 )
 from maat.core.serialization import canonical_json, model_digest
+from maat.core.validation import (
+    CODE_MODEL_PROBLEM,
+    CODE_UNRESOLVED_EDGES,
+    ValidationFinding,
+    ValidationReport,
+)
 from maat.offline.pipeline import OfflinePipeline
 
 from ..support import DEMO_REPO, EDGECASE_REPO, TempRepository, empty_temp_dir
@@ -795,6 +803,114 @@ class ResolutionIntegrationTests(unittest.TestCase):
                     self.assertTrue(
                         relationship.target_symbol_id.startswith("unresolved:")
                     )
+
+
+class ValidationIntegrationTests(unittest.TestCase):
+    """Stage 7 wired into the pipeline: section 14 AC5 and AC6, and D29."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.resolved = OfflinePipeline().index(DEMO_REPO, persist=False, resolve=True)
+        cls.unresolved = OfflinePipeline().index(DEMO_REPO, persist=False)
+
+    def test_the_report_is_exposed_on_the_result(self) -> None:
+        report = self.resolved.validation_report
+        self.assertIsNotNone(report)
+        self.assertTrue(report.is_valid)
+        self.assertEqual(
+            report.checked_relationships, len(self.resolved.ir.relationships)
+        )
+
+    def test_a_resolved_model_validates_cleanly(self) -> None:
+        """Every edge is placed, so there is nothing to report at all."""
+        self.assertEqual(self.resolved.validation_report.findings, [])
+        self.assertEqual(self.resolved.validation_problems, [])
+
+    def test_an_unresolved_model_still_publishes(self) -> None:
+        """D29: M1's output must stay publishable, and it must say why."""
+        report = self.unresolved.validation_report
+        self.assertTrue(report.is_valid)
+        self.assertFalse(report.blocks_publication)
+        self.assertGreater(report.unresolved_relationships, 0)
+        self.assertIn(CODE_UNRESOLVED_EDGES, {f.code for f in report.findings})
+
+    def test_validation_json_is_written(self) -> None:
+        with TempRepository(DEMO_REPO) as repo:
+            OfflinePipeline().index(
+                repo.root, index_dir=repo.index_dir, persist=True, resolve=True
+            )
+            payload = json.loads(
+                (repo.index_dir / "validation.json").read_text(encoding="utf-8")
+            )
+        self.assertTrue(payload["valid"])
+        self.assertFalse(payload["blocks_publication"])
+        self.assertIn("counts", payload)
+
+    def test_the_written_report_matches_the_in_memory_one(self) -> None:
+        with TempRepository(DEMO_REPO) as repo:
+            result = OfflinePipeline().index(
+                repo.root, index_dir=repo.index_dir, persist=True, resolve=True
+            )
+            payload = json.loads(
+                (repo.index_dir / "validation.json").read_text(encoding="utf-8")
+            )
+        self.assertEqual(payload, result.validation_report.to_dict())
+
+    def test_all_three_artifacts_are_written(self) -> None:
+        with TempRepository(DEMO_REPO) as repo:
+            OfflinePipeline().index(repo.root, index_dir=repo.index_dir, persist=True)
+            names = sorted(path.name for path in repo.index_dir.iterdir())
+        self.assertEqual(names, ["ir.json", "manifest.json", "validation.json"])
+
+    def test_the_report_is_deterministic_across_runs(self) -> None:
+        again = OfflinePipeline().index(DEMO_REPO, persist=False, resolve=True)
+        self.assertEqual(
+            again.validation_report.to_dict(),
+            self.resolved.validation_report.to_dict(),
+        )
+
+    def test_the_summary_reports_validation(self) -> None:
+        self.assertIn("validation", self.resolved.summary())
+
+    def test_a_blocking_report_writes_nothing(self) -> None:
+        """Section 14 AC6 -- invalid semantic data cannot be published.
+
+        No fixture can produce an invalid model on demand: the extractor emits no
+        duplicate edges, no dangling references and no stale versions, and both
+        fixtures validate cleanly (measured: zero findings on each). So the validator
+        is replaced for this one test -- the only way to exercise the guard itself
+        rather than the code path around it.
+        """
+        blocking = ValidationReport(
+            model_version="mv_test",
+            findings=[
+                ValidationFinding(
+                    severity=DiagnosticSeverity.ERROR,
+                    code=CODE_MODEL_PROBLEM,
+                    message="forced failure for the gate test",
+                )
+            ],
+        )
+        with TempRepository(DEMO_REPO) as repo:
+            with mock.patch(
+                "maat.offline.pipeline.validate_ir", return_value=blocking
+            ):
+                result = OfflinePipeline().index(
+                    repo.root, index_dir=repo.index_dir, persist=True
+                )
+            written = (
+                sorted(path.name for path in repo.index_dir.iterdir())
+                if repo.index_dir.exists()
+                else []
+            )
+
+        self.assertFalse(result.is_valid)
+        self.assertTrue(result.validation_report.blocks_publication)
+        self.assertEqual(
+            result.validation_problems, ["forced failure for the gate test"]
+        )
+        self.assertNotIn("ir.json", written)
+        self.assertNotIn("validation.json", written)
 
 
 if __name__ == "__main__":
