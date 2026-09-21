@@ -47,6 +47,34 @@ VERSION_PREFIX: Final[str] = "mv_"
 #: Placeholder ID scheme for relationship targets that did not resolve.
 UNRESOLVED_PREFIX: Final[str] = "unresolved:"
 
+#: Identity of the *pipeline*, not of the repository (D27).
+#:
+#: Before M2 a version ID was a pure function of file content, which was correct while
+#: the pipeline only ever observed: the same bytes always produced the same model.
+#: Resolution breaks that. Stage 6 rewrites relationship targets without touching a
+#: single file, so two genuinely different models -- one with every edge unresolved,
+#: one with edges resolved -- would carry the *same* content hash and therefore the
+#: same version ID. Incremental reuse keys off that ID, so it would happily serve the
+#: unresolved model and report it as current.
+#:
+#: Folding this token into the digest separates them. Bump it when a change alters what
+#: the pipeline *derives* from unchanged source; leave it alone when a change only
+#: alters how the same facts are computed (a refactor, or a faster query with identical
+#: output), because a bump invalidates every cached index.
+#:
+#: The value must be a source constant. Reading it from the environment, a timestamp,
+#: or the installed version would make version IDs vary between identical runs and
+#: break section 9 AC2.
+PIPELINE_FINGERPRINT: Final[str] = "offline.stages=0-5;semantic=absent"
+
+#: The fingerprint for a run that also executed Stage 6.
+#:
+#: Kept as a distinct constant rather than a mutable flag, so a version ID is always
+#: reproducible from the artifact alone: the token recorded on the model says exactly
+#: which pipeline produced it, and comparing two models' tokens says whether they are
+#: comparable.
+PIPELINE_FINGERPRINT_RESOLVED: Final[str] = "offline.stages=0-5;semantic=stages6-8"
+
 
 def _digest(*parts: object) -> str:
     """Hash the parts and return the first ``_ID_LEN`` hex characters."""
@@ -140,15 +168,23 @@ def binding_id(
     )
 
 
-def model_version_id(file_hashes_digest: str) -> str:
+def model_version_id(
+    file_hashes_digest: str, pipeline_fingerprint: str = PIPELINE_FINGERPRINT
+) -> str:
     """Identity of a model version.
 
-    Derived from the *combined content hash of every file in the snapshot*, and
-    nothing else. That gives versioning a property worth having: the version is a
-    pure function of repository state, so reindexing a repository that has not
-    actually changed yields the same version ID and does not manufacture a new
-    one. Section 9 AC2 expects a no-change run to reparse nothing, and inventing
-    a version for it would be a lie about the repository having moved.
+    Derived from the *combined content hash of every file in the snapshot*, the
+    identity of the pipeline that derived the model from them, and nothing else.
+    That gives versioning a property worth having: the version is a pure function of
+    repository state *and stage set*, so reindexing a repository that has not actually
+    changed yields the same version ID and does not manufacture a new one. Section 9
+    AC2 expects a no-change run to reparse nothing, and inventing a version for it
+    would be a lie about the repository having moved.
+
+    The fingerprint argument is D27. It defaults to the current pipeline identity, so
+    callers that predate the second dimension keep working, but the pipeline threads
+    it explicitly because Stage 6 must mint a *different* ID for a resolved model
+    built from identical bytes.
 
     The parent version is deliberately *not* an input. It is recorded on
     :class:`~maat.core.contracts.ModelVersion` as lineage metadata, but making
@@ -156,11 +192,11 @@ def model_version_id(file_hashes_digest: str) -> str:
     unchanged repository would hash a different parent and produce a different
     version every time.
 
-    A consequence worth stating: two repositories with byte-identical content
-    produce the same version ID. Version IDs are only ever meaningful within the
-    index directory they were built into, so this is harmless.
+    A consequence worth stating: two repositories with byte-identical content and an
+    identical pipeline produce the same version ID. Version IDs are only ever
+    meaningful within the index directory they were built into, so this is harmless.
     """
-    return VERSION_PREFIX + _digest(file_hashes_digest)
+    return VERSION_PREFIX + _digest(file_hashes_digest, pipeline_fingerprint)
 
 
 def unresolved_target_id(target_key: str) -> str:

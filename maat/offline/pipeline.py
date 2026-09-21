@@ -118,13 +118,21 @@ class PipelineResult:
     stats: PipelineStats = field(default_factory=PipelineStats)
     index_dir: str = ""
     validation_problems: list[str] = field(default_factory=list)
+    #: ``None`` when Stage 6 did not run, otherwise the rung-by-rung counts. Typed
+    #: loosely on purpose: annotating it as ``ResolutionReport`` would force a
+    #: module-scope import of the semantic tier, which D30 exists to prevent.
+    resolution: Any = None
 
     @property
     def is_valid(self) -> bool:
         return not self.validation_problems
 
+    @property
+    def was_resolved(self) -> bool:
+        return self.resolution is not None
+
     def summary(self) -> dict[str, Any]:
-        return {
+        payload = {
             "model_version": self.version.id,
             "root": self.snapshot.root,
             "stats": self.stats.to_dict(),
@@ -134,6 +142,9 @@ class PipelineResult:
             "valid": self.is_valid,
             "validation_problems": self.validation_problems[:20],
         }
+        if self.resolution is not None:
+            payload["resolution"] = self.resolution.to_dict()
+        return payload
 
 
 # ---------------------------------------------------------------------------
@@ -404,7 +415,14 @@ class OfflinePipeline:
         root: str | Path,
         index_dir: str | Path | None = None,
         persist: bool = True,
+        resolve: bool = False,
     ) -> PipelineResult:
+        """Run stages 1-5, optionally stage 6, then publish.
+
+        ``resolve`` runs Stage 6 before validation. It is off by default (D35) so
+        M1's output stays reproducible bit for bit; turning it on mints a different
+        model version (D27), which is the point rather than a side effect.
+        """
         started = time.perf_counter()
         root_path = Path(root).resolve()
         index_path = resolve_index_dir(root_path, index_dir)
@@ -418,8 +436,16 @@ class OfflinePipeline:
 
         # --- stage 1: snapshot -------------------------------------------
         snapshot = scan_repository(root_path, model_version="", options=self.options)
+        # D27: the fingerprint records which pipeline derived this model. A run that
+        # resolves produces a different model from the same bytes, so it must mint a
+        # different version ID -- otherwise reuse would serve an unresolved model as
+        # if it were the resolved one.
+        fingerprint = idgen.PIPELINE_FINGERPRINT
+        if resolve:
+            fingerprint = idgen.PIPELINE_FINGERPRINT_RESOLVED
         version_id = idgen.model_version_id(
-            combine_hashes([record.content_hash for record in snapshot.files])
+            combine_hashes([record.content_hash for record in snapshot.files]),
+            fingerprint,
         )
         # Stamp the resolved version onto every record. Done here rather than
         # inside the scanner because the version is derived *from* the scan.
@@ -473,7 +499,27 @@ class OfflinePipeline:
                         root_path, record, language, version_id, ir, stats
                     )
 
+        # --- stage 6: resolution -------------------------------------------
+        # Placed after every file is built and before validation, so validation
+        # checks the *resolved* model and an invalid resolution cannot publish.
+        # Section 4.2: an edge that cannot be resolved stays explicitly unresolved,
+        # which validation reports rather than rejects (D29), so a repository with
+        # unresolved edges still publishes.
+        resolution_report = None
+        if resolve:
+            # Imported here, not at module scope. ``maat.semantic`` depends only on
+            # ``maat.core``; importing it at the top of this module would pull the
+            # semantic tier into every offline import and blur the tier boundary the
+            # architecture is built around (D30). The pipeline is the orchestrator, so
+            # it is the one place allowed to reach across.
+            from ..semantic import resolve_ir
+
+            resolution_report = resolve_ir(ir)
+
         # --- deterministic ordering ---------------------------------------
+        # After resolution: the sort key falls back to the target when an edge has no
+        # ``target_name``, and resolution rewrites targets. Sorting before would be
+        # correct today only by accident, because every edge currently carries a name.
         _sort_ir(ir)
 
         validation = ir.problems()
@@ -488,6 +534,7 @@ class OfflinePipeline:
             degraded_file_count=sum(1 for f in ir.files if f.is_degraded),
             diagnostics_count=len(ir.diagnostics),
             binding_count=len(ir.bindings),
+            pipeline_fingerprint=fingerprint,
         )
 
         stats.symbols = len(ir.symbols)
@@ -505,6 +552,7 @@ class OfflinePipeline:
             stats=stats,
             index_dir=str(index_path),
             validation_problems=validation,
+            resolution=resolution_report,
         )
 
         # --- publish ------------------------------------------------------
@@ -667,6 +715,14 @@ def index_repository(
     root: str | Path,
     index_dir: str | Path | None = None,
     persist: bool = True,
+    resolve: bool = False,
 ) -> PipelineResult:
-    """Convenience wrapper around :class:`OfflinePipeline`."""
-    return OfflinePipeline().index(root, index_dir=index_dir, persist=persist)
+    """Convenience wrapper around :class:`OfflinePipeline`.
+
+    ``resolve`` runs Stage 6 before validation. It is off by default (D35) so M1's
+    output stays reproducible bit for bit; turning it on mints a different model
+    version (D27), which is the point rather than a side effect.
+    """
+    return OfflinePipeline().index(
+        root, index_dir=index_dir, persist=persist, resolve=resolve
+    )

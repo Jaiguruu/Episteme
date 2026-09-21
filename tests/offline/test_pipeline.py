@@ -13,6 +13,7 @@ from collections import defaultdict
 from maat.core.enums import (
     ParseStatus,
     RelationshipType,
+    ResolutionStatus,
     SymbolType,
 )
 from maat.core.serialization import canonical_json, model_digest
@@ -593,6 +594,208 @@ class BindingPersistenceTests(unittest.TestCase):
         for binding in result.ir.bindings:
             with self.subTest(binding=binding.bound_name):
                 self.assertIn(binding.enclosing_symbol_id, symbol_ids)
+
+
+#: Section 7's expected graph, as resolved call hops. The spec's chain is reachable
+#: only once Stage 6 runs: before it, every one of these edges is UNRESOLVED.
+SPEC_CHAIN_CALLS = {
+    (
+        "api.checkout_controller:CheckoutController.handle",
+        "services.checkout_service:CheckoutService.checkout",
+    ),
+    (
+        "services.checkout_service:CheckoutService.checkout",
+        "services.payment_service:PaymentService.process",
+    ),
+    (
+        "services.payment_service:PaymentService.process",
+        "repositories.payment_repository:PaymentRepository.save",
+    ),
+    (
+        "services.refund_service:RefundService.refund",
+        "services.payment_service:PaymentService.process",
+    ),
+}
+
+
+def resolved_calls(result) -> set[tuple[str, str]]:
+    """Resolved CALLS edges as (source, target) qualified-name pairs."""
+    symbols = {symbol.id: symbol for symbol in result.ir.symbols}
+    edges: set[tuple[str, str]] = set()
+    for relationship in result.ir.relationships:
+        if relationship.relationship_type is not RelationshipType.CALLS:
+            continue
+        if relationship.resolution_status is not ResolutionStatus.RESOLVED_EXACT:
+            continue
+        source = symbols.get(relationship.source_symbol_id)
+        target = symbols.get(relationship.target_symbol_id)
+        if source is not None and target is not None:
+            edges.add((source.qualified_name, target.qualified_name))
+    return edges
+
+
+def statuses(result) -> set[ResolutionStatus]:
+    return {r.resolution_status for r in result.ir.relationships}
+
+
+class ResolutionIntegrationTests(unittest.TestCase):
+    """Stage 6 wired into the pipeline: section 13, D27 and D35.
+
+    ``demo_repo`` is the fixture the spec defines its expected graph against, so the
+    chain assertion here is the end-to-end proof that resolution does what section 13
+    describes -- and that the persisted bindings (D34) are what make it possible.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.unresolved = OfflinePipeline().index(DEMO_REPO, persist=False)
+        cls.resolved = OfflinePipeline().index(DEMO_REPO, persist=False, resolve=True)
+
+    def test_resolution_is_off_by_default(self) -> None:
+        """D35: M1's output must stay reproducible, so the default is False."""
+        self.assertIsNone(self.unresolved.resolution)
+        self.assertFalse(self.unresolved.was_resolved)
+        self.assertTrue(self.resolved.was_resolved)
+
+    def test_the_spec_chain_resolves_end_to_end(self) -> None:
+        """Section 7's expected graph must walk as real CALLS edges."""
+        edges = resolved_calls(self.resolved)
+        for hop in sorted(SPEC_CHAIN_CALLS):
+            with self.subTest(hop=hop):
+                self.assertIn(hop, edges)
+
+    def test_resolution_removes_every_unresolved_edge(self) -> None:
+        before = sum(
+            1
+            for r in self.unresolved.ir.relationships
+            if r.resolution_status is ResolutionStatus.UNRESOLVED
+        )
+        after = sum(
+            1
+            for r in self.resolved.ir.relationships
+            if r.resolution_status is ResolutionStatus.UNRESOLVED
+        )
+        self.assertGreater(before, 0, "the fixture must start unresolved")
+        self.assertEqual(after, 0)
+
+    def test_every_demo_edge_resolves_exactly(self) -> None:
+        self.assertEqual(statuses(self.resolved), {ResolutionStatus.RESOLVED_EXACT})
+
+    def test_no_resolved_edge_points_at_a_missing_symbol(self) -> None:
+        """Section 13 AC5, over a real model rather than a synthetic one."""
+        symbol_ids = {symbol.id for symbol in self.resolved.ir.symbols}
+        for relationship in self.resolved.ir.relationships:
+            if relationship.resolution_status is ResolutionStatus.RESOLVED_EXACT:
+                with self.subTest(edge=relationship.id):
+                    self.assertIn(relationship.target_symbol_id, symbol_ids)
+
+    def test_resolution_does_not_change_the_edge_or_symbol_count(self) -> None:
+        """Resolution retargets edges; it never creates or destroys them."""
+        self.assertEqual(
+            len(self.resolved.ir.relationships),
+            len(self.unresolved.ir.relationships),
+        )
+        self.assertEqual(
+            len(self.resolved.ir.symbols), len(self.unresolved.ir.symbols)
+        )
+
+    def test_the_resolved_model_is_valid(self) -> None:
+        self.assertEqual(self.resolved.validation_problems, [])
+        self.assertEqual(self.resolved.ir.problems(), [])
+        self.assertTrue(self.resolved.is_valid)
+
+    def test_resolving_mints_a_different_version(self) -> None:
+        """D27: two models from identical bytes must not share a version ID."""
+        self.assertNotEqual(self.resolved.version.id, self.unresolved.version.id)
+
+    def test_the_fingerprint_records_which_pipeline_ran(self) -> None:
+        self.assertEqual(
+            self.unresolved.version.pipeline_fingerprint,
+            "offline.stages=0-5;semantic=absent",
+        )
+        self.assertEqual(
+            self.resolved.version.pipeline_fingerprint,
+            "offline.stages=0-5;semantic=stages6-8",
+        )
+
+    def test_resolution_is_deterministic_across_runs(self) -> None:
+        third = OfflinePipeline().index(DEMO_REPO, persist=False, resolve=True)
+        self.assertEqual(third.version.id, self.resolved.version.id)
+        self.assertEqual(resolved_calls(third), resolved_calls(self.resolved))
+
+    def test_the_report_is_exposed_on_the_result(self) -> None:
+        payload = self.resolved.resolution.to_dict()
+        self.assertGreater(payload["resolved"], 0)
+        self.assertEqual(payload["unresolved"], 0)
+        self.assertIn("by_rung", payload)
+
+    def test_the_report_appears_in_the_summary(self) -> None:
+        self.assertIn("resolution", self.resolved.summary())
+        self.assertNotIn("resolution", self.unresolved.summary())
+
+    def test_reused_edges_are_resolved_too(self) -> None:
+        """Incremental reuse must not hand back edges that skipped Stage 6."""
+        with TempRepository(DEMO_REPO) as repo:
+            OfflinePipeline().index(
+                repo.root, index_dir=repo.index_dir, persist=True, resolve=True
+            )
+            second = OfflinePipeline().index(
+                repo.root, index_dir=repo.index_dir, persist=True, resolve=True
+            )
+        self.assertNotIn(ResolutionStatus.UNRESOLVED, statuses(second))
+
+    def test_resolution_is_written_to_ir_json(self) -> None:
+        with TempRepository(DEMO_REPO) as repo:
+            result = OfflinePipeline().index(
+                repo.root, index_dir=repo.index_dir, persist=True, resolve=True
+            )
+            payload = json.loads(
+                (repo.index_dir / "ir.json").read_text(encoding="utf-8")
+            )
+        in_memory = sum(
+            1
+            for r in result.ir.relationships
+            if r.resolution_status is ResolutionStatus.RESOLVED_EXACT
+        )
+        on_disk = sum(
+            1
+            for raw in payload["relationships"]
+            if raw["resolution_status"] == ResolutionStatus.RESOLVED_EXACT.value
+        )
+        self.assertEqual(in_memory, on_disk)
+        self.assertGreater(on_disk, 0)
+        for raw in payload["relationships"]:
+            with self.subTest(edge=raw["id"]):
+                self.assertIn("candidate_symbol_ids", raw)
+
+    def test_a_plain_run_writes_no_resolution(self) -> None:
+        """The default path must stay byte-identical to M1's output."""
+        with TempRepository(DEMO_REPO) as repo:
+            OfflinePipeline().index(
+                repo.root, index_dir=repo.index_dir, persist=True, resolve=False
+            )
+            payload = json.loads(
+                (repo.index_dir / "ir.json").read_text(encoding="utf-8")
+            )
+        self.assertNotIn("resolution", payload)
+        self.assertIn(
+            ResolutionStatus.UNRESOLVED.value,
+            {raw["resolution_status"] for raw in payload["relationships"]},
+        )
+
+    def test_edgecase_repo_resolves_without_problems(self) -> None:
+        """The stress fixture: 5,044 symbols, 5,398 relationships, 18 grammars."""
+        result = OfflinePipeline().index(EDGECASE_REPO, persist=False, resolve=True)
+        self.assertEqual(result.ir.problems(), [])
+        for relationship in result.ir.relationships:
+            if relationship.resolution_status is ResolutionStatus.AMBIGUOUS:
+                with self.subTest(edge=relationship.id):
+                    # D28: ambiguous edges keep the placeholder and list candidates.
+                    self.assertTrue(relationship.candidate_symbol_ids)
+                    self.assertTrue(
+                        relationship.target_symbol_id.startswith("unresolved:")
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()

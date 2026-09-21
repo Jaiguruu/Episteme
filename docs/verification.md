@@ -32,7 +32,7 @@ belongs to tells you what kind of test can prove it.
 
 ## 2. Suite shape
 
-**278 tests, 54 classes, 11 files.** `python tests/run_all.py`, ~15 s, stdlib
+**355 tests, 71 classes, 13 files.** `python tests/run_all.py`, ~15 s, stdlib
 `unittest` only.
 
 | File | Tests | Classes | Covers |
@@ -45,8 +45,10 @@ belongs to tells you what kind of test can prove it.
 | `tests/offline/test_changes.py` | 19 | 3 | §9 Stage 2 |
 | `tests/offline/test_parser.py` | 20 | 4 | §10 Stage 3 |
 | `tests/offline/test_extractor.py` | 16 | 5 | §11 Stage 4 |
-| `tests/offline/test_ir.py` | 44 | 7 | §12 Stage 5, identity, bindings |
-| `tests/offline/test_pipeline.py` | 46 | 7 | end-to-end, incremental, publication, §30, model loader |
+| `tests/offline/test_ir.py` | 47 | 7 | §12 Stage 5, identity, bindings |
+| `tests/offline/test_pipeline.py` | 62 | 8 | end-to-end, incremental, publication, §30, model loader, resolution |
+| `tests/semantic/test_ladder.py` | 21 | 4 | §13 Stage 6 — the resolution ladder |
+| `tests/semantic/test_resolver.py` | 37 | 12 | §13 Stage 6 — resolution end to end |
 | `tests/test_docs.py` | 3 | 1 | documentation hygiene guard (D33) |
 
 Counts are measured, not carried over: the per-file figures in this table were wrong
@@ -71,7 +73,7 @@ map). See [`testing.md`](testing.md).
 | §10 Stage 3 | 6 | 6 | |
 | §11 Stage 4 | 3 | 3 | `REFERENCES` / `IMPLEMENTS` not produced — see §5 |
 | §12 Stage 5 | 6 | 6 | `maat/core/` now has its own module — see §2 |
-| §13 Stage 6 | 6 | 0 | not started — resolution was built and reverted; see §5 |
+| §13 Stage 6 | 6 | 6 | `maat/semantic/` — the resolver and the ladder; see §6 |
 | §14 Stage 7 | 6 | 0 | M2, not started — the report and severity policy |
 | §15 Stage 8 | 6 | 0 | M2, not started — `ModelStore` |
 | §16 Stage 9 | 5 | 0 | M3 — preconditions only |
@@ -82,14 +84,15 @@ map). See [`testing.md`](testing.md).
 **M1's acceptance surface is fully covered.** Every numbered AC belonging to §8,
 §9, §10, §11 and §30 has at least one direct test.
 
-**Overall: 39 of 131 stage-level criteria (30%) are covered** — the remainder
+**Overall: 45 of 131 stage-level criteria (34%) are covered** — the remainder
 belong to stages that are not built. This is a milestone boundary, not a gap.
 
 The gaps that were inside a built stage's own scope have all been closed:
-`maat/core/` now has a test module (§2) and the model loader is defensive and
-tested (§5). Spec items belonging to stages that do not exist yet — including
-§13 Stage 6 — are not gaps. Stage 6 was built and then reverted, so it is back to
-future work; its acceptance criteria belong to a stage with no code in this tree.
+`maat/core/` now has a test module (§2), the model loader is defensive and
+tested (§5), and Stage 6's six acceptance criteria are covered by
+`tests/semantic/`. Spec items belonging to stages that do not exist yet — §14
+Stage 7 onward — are not gaps; their acceptance criteria belong to stages with
+no code in this tree.
 
 ---
 
@@ -191,36 +194,37 @@ protected from `.gitignore` by an explicit negation. Do not remove it.
 ## 6. Where the criteria are weak
 
 Eight criteria **cannot be falsified as written**. These are specification gaps,
-not implementation gaps, and each should be sharpened before the stage that
-depends on it is built.
+not implementation gaps. Stage 6 is now built, so its two criteria — §13 AC3 and
+§13 AC5 — have been sharpened below; the rest should be sharpened before the
+stage that depends on them is built.
 
 | Criterion | Problem | Sharper form |
 |---|---|---|
 | **§9 AC5** Rename | Conditional on "where supported" and "when cache policy allows reuse" — satisfiable vacuously by declaring a restrictive policy | "A rename must not change any entity ID that survives the move, and must not require reparsing file contents" |
 | **§16 AC3** Transitive traversal | "within depth N" — N is never fixed | State N, or state that N is caller-supplied and that the bound is enforced |
-| **§13 AC3** Ambiguous resolution | "Ambiguous" is undefined — ambiguity is a policy decision, not a fact | Define the predicate (for example: more than one candidate at equal confidence) |
+| **§13 AC3** Ambiguous resolution | "Ambiguous" is undefined — ambiguity is a policy decision, not a fact | **Sharpened when Stage 6 was built.** Ambiguity means more than one candidate at equal confidence; the resolver marks the edge `AMBIGUOUS`, records a bounded candidate list (`MAX_CANDIDATES = 8`), and keeps the placeholder target rather than picking one |
 | **§21** Intent ambiguity | "must not silently route to an arbitrary strategy" — no threshold for when a query counts as ambiguous | Define the confidence threshold and the clarification response |
 | **§25 AC4** Exact relationship validation | "within the defined response policy" — the policy is never defined | Define the policy (for example: exact set equality for `FIND_REFERENCES`) |
-| **§13 AC5** No hallucinated relationship | Constrains a mechanism rather than an output; not directly observable | Test the proxy: every relationship carries evidence (§13 AC6) and confidence matches status |
+| **§13 AC5** No hallucinated relationship | Constrains a mechanism rather than an output; not directly observable | **Sharpened when Stage 6 was built.** Test the proxy: every resolved target exists in the model, the edge count is unchanged by resolution, and confidence agrees with status (exact ⇒ 1.0, ambiguous and unresolved ⇒ 0.0) |
 | **§11 AC3** No AST leakage | Structural and negative; only checkable by absence | Enumerate the allowed fact vocabulary exhaustively |
 | **§10 AC6** Partial parsing | "Where Tree-sitter provides a usable partial tree" — "usable" is undefined | Define usable as at least one clean top-level statement — **the implementation already does this** |
 
 **§10 AC6 is the model to follow.** The implementation made the undefined word
 concrete — "usable" became "at least one clean top-level statement" — and the
-behaviour became testable as a result. The other seven deserve the same treatment.
+behaviour became testable as a result. The other five deserve the same treatment.
 
 ---
 
 ## 7. Running the checks
 
 ```bash
-python tests/run_all.py            # 278 tests, exit 1 on failure
+python tests/run_all.py            # 355 tests, exit 1 on failure
 python tests/run_all.py -v         # verbose
 python tests/run_all.py offline    # substring filter on the test id
 
 python tools/verify_queries.py     # all 18 .scm compile and fire their captures
 python tools/verify_bindings.py    # per-language @binding coverage
-python tools/count_tests.py        # the 278 / 54 / 11 figures quoted in §2
+python tools/count_tests.py        # the 355 / 71 / 13 figures quoted in §2
 ```
 
 CI runs the first two. `verify_queries.py` matters more than it looks: a malformed

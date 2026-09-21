@@ -27,18 +27,39 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **A dedicated test module for `maat/core/`.** `tests/core/` adds 114 tests across
   `test_enums.py`, `test_locations.py`, `test_contracts.py` and
   `test_serialization.py`, covering behaviour that until now was only exercised
-  indirectly. The suite is 278 tests, up from 137.
+  indirectly. The suite is now 355 tests, up from 137.
 - **A guard against documentation drift.** `tests/test_docs.py` fails the suite if a
   concrete `model_version` value is quoted in any tracked document (D33), since a
   version ID is a raw-byte digest and does not reproduce across line-ending policies.
 - **`tools/count_tests.py`,** which derives the test/class/file figures the docs quote
   by walking the AST. The counts were hand-maintained and had drifted — the documented
   class total was 50 against a real 53, and two per-file rows were wrong.
-- **A rolled-back Stage 6.** An implementation of Stage 6 (symbol and relationship
-  resolution, the `maat/semantic/` package) and its pipeline fingerprint (D27) were
-  built and then reverted, so no part of M2 ships in this tree. The bindings work
-  above is kept: persisting them was a prerequisite for Stage 6, not a piece of it.
-  Stage 6 is a future stage again — see [`ROADMAP.md`](ROADMAP.md).
+- **Stage 6 — symbol and relationship resolution.** A new `maat/semantic/` package
+  (D30) resolves the references M1 observes into edges to real symbols. `ladder.py`
+  holds the nine-rung precedence ladder `ResolutionRung` (S1–S9) with its three keyed
+  policy tables and `INSTANCE_RECEIVERS` (D31); `resolver.py` holds `Resolver`,
+  `ResolutionReport` and `resolve_ir`, with `MAX_CANDIDATES = 8` bounding the
+  candidate list an ambiguous edge records (D26). The package depends only on
+  `maat/core`, never on `maat/offline`; the pipeline reaches across by importing it
+  inside the method. Resolution is opt-in — `index(..., resolve=True)`,
+  `index_repository(..., resolve=True)` — so M1's output stays reproducible bit for
+  bit by default (D35). An edge that cannot be placed stays explicitly `UNRESOLVED`,
+  and one with several equally plausible targets is marked `AMBIGUOUS` with the
+  placeholder target kept rather than a guess (D28). Measured on `demo_repo`, all 42
+  edges resolve `RESOLVED_EXACT` with none unresolved (before: 19 exact / 23
+  unresolved); `edgecase_repo` resolves with 0 validation problems. The suite is
+  355 tests across 71 classes and 13 files, up from 278 / 54 / 11 — `tests/semantic/`
+  adds `test_ladder.py` (21 tests) and `test_resolver.py` (37 tests).
+- **A pipeline fingerprint for version identity (D27).** `model_version_id` now
+  takes a `pipeline_fingerprint`, and `maat/core/ids.py` carries two constants —
+  `PIPELINE_FINGERPRINT` (`offline.stages=0-5;semantic=absent`) and
+  `PIPELINE_FINGERPRINT_RESOLVED` (`offline.stages=0-5;semantic=stages6-8`).
+  Resolution changes the model without changing any file, so without the fingerprint
+  one content hash would map to two different models sharing a version ID, and reuse
+  could serve an unresolved model as if it were the resolved one. `ModelVersion`
+  gains a `pipeline_fingerprint` field, and `PipelineResult` gains `resolution` and a
+  `was_resolved` property. **Every version ID changes once as a result, so an
+  existing `.maat/` index rebuilds on first use.**
 
 ### Changed
 

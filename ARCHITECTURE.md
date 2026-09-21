@@ -83,10 +83,16 @@ maat/offline/                 the pipeline
     query_extractor.py 623    one extractor that serves every language
   ir_builder.py      537      facts → validated Symbol/Relationship/Binding/Evidence/Chunk
   pipeline.py        670      orchestration, incremental reuse, atomic publication
+
+maat/semantic/                the resolution tier (Stage 6). Depends only on maat/core.
+  ladder.py          199      ResolutionRung (S1–S9), the three policy tables, INSTANCE_RECEIVERS
+  resolver.py        622      Resolver, ResolutionReport, resolve_ir; MAX_CANDIDATES = 8
 ```
 
 `maat/core/` depends on nothing else in the project. `maat/offline/` depends on
-`maat/core/` and never the reverse.
+`maat/core/` and never the reverse. `maat/semantic/` depends only on `maat/core/`
+— never on `maat/offline/` — so the syntax tier stays free of meaning (D30); the
+pipeline reaches across by importing the semantic tier inside the method.
 
 ---
 
@@ -264,6 +270,9 @@ change, not a refactor.
 7. **Determinism is a tested property.** Any change to traversal, hashing,
    serialisation or ID derivation needs a test that would catch a regression.
 8. **`model_version` is never an input to an ID.**
+9. **`maat/semantic/` depends only on `maat/core/`.** The resolution tier never
+   imports `maat/offline/`, so the syntax tier stays free of meaning and the
+   resolver cannot acquire a per-language branch (D30).
 
 ---
 
@@ -271,32 +280,30 @@ change, not a refactor.
 
 ```text
 M1  Stages 0–5    snapshot → parse → extract → SemanticIR          DONE
-M2  Stages 6–8    resolution → validation → canonical model        next
+M2  Stages 6–8    resolution → validation → canonical model        Stage 6 DONE
 M3  Stages 9–12   graph / FTS5 / vector projections                not started
 M4  Stages 13–18  retrieval and reasoning                          not started
 M5  Stages 19–20  MCP tools and the ReAct agent                    not started
 M6  Stages 21–24  invalidation, fault tolerance, CLI, end-to-end   not started
 ```
 
-M2 lands in a **new sibling package, `maat/semantic/`** — not inside
-`offline/`. The reason is the tier boundary: the syntax tier must stay free of
-meaning, exactly as it does today. M2 upgrades edges rather than changing the
-schema, because the `ResolutionStatus` vocabulary, the confidence policy and the
-relationship contract already exist.
+Stage 6 landed in a **new sibling package, `maat/semantic/`** — not inside
+`offline/`. The reason is the tier boundary: the syntax tier stays free of
+meaning, exactly as before. It upgrades edges rather than changing the schema,
+because the `ResolutionStatus` vocabulary, the confidence policy and the
+relationship contract already existed.
 
-Two prerequisites for M2 remain, and both are documented in
-[`docs/decisions.md`](docs/decisions.md):
+Resolution is opt-in (`index(..., resolve=True)`), so M1's output is unchanged by
+default. Both prerequisites are now closed (see
+[`docs/decisions.md`](docs/decisions.md)):
 
-1. **Version identity needs a pipeline fingerprint.** `model_version_id` is
-   currently a pure function of file content. That is correct for M1 but breaks
-   once resolution can change the model without changing any file, because one
-   content hash would map to two different models sharing a version ID (D27).
-2. **Bindings must be persisted before Stage 6 can consume them.** This one is
-   **closed**: bindings are now a collection in the model (D34), so Stage 6 has
-   the raw material it needs. A consequence worth knowing is that adding a
-   collection made the version-ID collision in D27 concrete rather than
-   hypothetical, and `load_previous_ir` now treats a payload missing a collection
-   as stale and rebuilds — which closes the silent-gap case, but leaves the
-   version ID itself colliding until the fingerprint lands.
+1. **Version identity needs a pipeline fingerprint.** `model_version_id` now takes
+   a `pipeline_fingerprint`, and `maat/core/ids.py` carries `PIPELINE_FINGERPRINT`
+   and `PIPELINE_FINGERPRINT_RESOLVED`. A resolved model and an unresolved one
+   built from identical bytes now get different version IDs (D27); every version
+   ID changes once, so an existing `.maat/` index rebuilds on first use.
+2. **Bindings must be persisted before Stage 6 can consume them.** **Closed**:
+   bindings are a collection in the model (D34), so Stage 6 has the raw material
+   it needs.
 
 See [`ROADMAP.md`](ROADMAP.md) for status and where to contribute.

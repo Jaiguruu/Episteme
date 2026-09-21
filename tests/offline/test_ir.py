@@ -124,11 +124,11 @@ class IdentityTests(unittest.TestCase):
 
 
 class VersionIdentityTests(unittest.TestCase):
-    """A version ID is a pure function of repository content, and nothing else."""
+    """A version ID is a pure function of content *and* pipeline (D27)."""
 
     CONTENT = "0123456789abcdef"  # synthetic digest, never a real model version
 
-    def test_same_content_is_stable(self) -> None:
+    def test_same_content_and_pipeline_is_stable(self) -> None:
         first = idgen.model_version_id(self.CONTENT)
         second = idgen.model_version_id(self.CONTENT)
         self.assertEqual(first, second)
@@ -137,6 +137,37 @@ class VersionIdentityTests(unittest.TestCase):
         self.assertNotEqual(
             idgen.model_version_id(self.CONTENT),
             idgen.model_version_id("fedcba9876543210"),
+        )
+
+    def test_same_content_under_a_different_pipeline_differs(self) -> None:
+        """D27: resolution changes the model without changing any file.
+
+        Without the fingerprint, a resolved model and an unresolved one built from
+        identical bytes would share a version ID -- and reuse keys off that ID, so a
+        run could be served the model it did not ask for, silently.
+        """
+        self.assertNotEqual(
+            idgen.model_version_id(self.CONTENT, idgen.PIPELINE_FINGERPRINT),
+            idgen.model_version_id(self.CONTENT, idgen.PIPELINE_FINGERPRINT_RESOLVED),
+        )
+
+    def test_the_fingerprint_defaults_to_the_observing_pipeline(self) -> None:
+        """A caller that predates the second dimension keeps the old behaviour."""
+        self.assertEqual(
+            idgen.model_version_id(self.CONTENT),
+            idgen.model_version_id(self.CONTENT, idgen.PIPELINE_FINGERPRINT),
+        )
+
+    def test_the_fingerprints_are_distinct_source_constants(self) -> None:
+        """They must not be read from the environment or a clock.
+
+        Section 9 AC2 requires a no-change run to reuse everything; a fingerprint
+        that varied per run would mint a new version every time.
+        """
+        self.assertTrue(idgen.PIPELINE_FINGERPRINT)
+        self.assertTrue(idgen.PIPELINE_FINGERPRINT_RESOLVED)
+        self.assertNotEqual(
+            idgen.PIPELINE_FINGERPRINT, idgen.PIPELINE_FINGERPRINT_RESOLVED
         )
 
     def test_entity_ids_do_not_depend_on_the_version(self) -> None:

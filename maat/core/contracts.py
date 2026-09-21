@@ -513,6 +513,10 @@ class ModelVersion:
     degraded_file_count: int = 0
     diagnostics_count: int = 0
     binding_count: int = 0
+    #: Which pipeline derived this model (D27). Recorded so a model is
+    #: self-describing: two models built from identical bytes by different stage sets
+    #: get different IDs, and the token on the artifact says which one it is.
+    pipeline_fingerprint: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -526,6 +530,7 @@ class ModelVersion:
             "degraded_file_count": self.degraded_file_count,
             "diagnostics_count": self.diagnostics_count,
             "binding_count": self.binding_count,
+            "pipeline_fingerprint": self.pipeline_fingerprint,
         }
 
 

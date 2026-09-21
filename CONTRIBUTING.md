@@ -32,7 +32,7 @@ python -c "import tree_sitter; print(tree_sitter.__file__)"
 **Run the suite:**
 
 ```bash
-python tests/run_all.py              # 278 tests, ~15 s
+python tests/run_all.py              # 355 tests, ~15 s
 python tests/run_all.py -v           # verbose
 python tests/run_all.py offline      # only tests whose id contains "offline"
 ```
@@ -208,7 +208,7 @@ the second run and the degraded count went 1 -> 0.
 
 **Before opening a PR:**
 
-- [ ] `python tests/run_all.py` passes (278 tests)
+- [ ] `python tests/run_all.py` passes (355 tests)
 - [ ] `python tools/verify_queries.py` exits 0 (if you touched a `.scm`)
 - [ ] New behaviour has a test that fails without your change
 - [ ] No unrelated code was modified

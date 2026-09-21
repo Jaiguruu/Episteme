@@ -10,7 +10,8 @@ extracts language-neutral facts, and produces a versioned `SemanticIR`.
 It is the offline half of **MAAT** (Repository Intelligence Agent), and the
 substrate the online pipeline reasons over.
 
-> **M1 · Stages 0–5** of the [MAAT roadmap](ROADMAP.md)
+> **M1 · Stages 0–5**, plus **Stage 6** (opt-in resolution) — of the
+> [MAAT roadmap](ROADMAP.md)
 
 ```text
 Source repository
@@ -170,7 +171,7 @@ isolated: the rest of the repository stays queryable.
 
 ## Verified behaviour
 
-**278 tests, all passing** (`python tests/run_all.py`, ~15 s).
+**355 tests, all passing** (`python tests/run_all.py`, ~15 s).
 
 | Repository | Scanned | Symbols | Relationships | Bindings |
 |---|---:|---:|---:|---:|
@@ -216,6 +217,9 @@ maat/offline/
   extractors/       grammar-neutral facts
   ir_builder.py     facts → SemanticIR
   pipeline.py       orchestration, incremental reuse, atomic publication
+maat/semantic/      Stage 6 — resolution; depends only on maat/core
+  ladder.py         the S1–S9 precedence ladder and its policy tables
+  resolver.py       the resolver, its report and its entry point
 tests/              stdlib unittest — no pytest
 tools/              demo harness, tree dumper, query and binding verifiers
 docs/               contributor reference
@@ -239,19 +243,49 @@ docs/               contributor reference
 
 Stages 0–5 are implemented: snapshot, change detection, parsing, extraction and
 the semantic IR. Bindings are captured **and** persisted — `BindingFact` from
-Tier 2 becomes a `Binding` entity in the model, so the raw material Stage 6 needs
-is already there.
+Tier 2 becomes a `Binding` entity in the model.
 
-**Not yet implemented:** symbol and relationship resolution (Stage 6, the
-`maat/semantic/` package), relationship validation as a first-class report
+**Stage 6 — symbol and relationship resolution — is implemented and opt-in.**
+`maat/semantic/` resolves the references M1 observes into edges to real symbols
+through a precedence ladder (D24), so an edge's `resolution_status` records
+*which fact* justified it rather than an opaque score. It reads only the
+language-neutral model — symbols, relationships, bindings — never a grammar, so
+one resolver covers all 18 extractable languages.
+
+Resolution is off by default, so M1's output stays reproducible bit for bit. Pass
+`resolve=True` to turn it on:
+
+```python
+from maat.offline import index_repository
+
+result = index_repository("path/to/repo", persist=False, resolve=True)
+
+print(result.was_resolved)              # True — Stage 6 ran
+print(result.resolution.resolved)       # 42
+print(result.resolution.unresolved)     # 0
+print(result.ir.problems())             # [] — the resolved model still validates
+```
+
+Verified output on `tests/fixtures/demo_repo`:
+
+```text
+True
+42
+0
+[]
+```
+
+`persist=False` is used above so the example writes nothing. A resolved model
+gets a different version ID than an unresolved one built from the same bytes
+(D27), so an existing `.maat/` index rebuilds once. An edge that cannot be placed
+stays explicitly `UNRESOLVED`; one with several equally plausible targets is
+marked `AMBIGUOUS` with a bounded candidate list, never guessed (D26, D28).
+
+**Not yet implemented:** relationship validation as a first-class report
 (Stage 7), the canonical model store (Stage 8), the graph / FTS5 / vector
 projections, retrieval, reasoning, and the MCP tool layer. Those are M2–M6 in
-[`ROADMAP.md`](ROADMAP.md).
-
-Every reference the pipeline observes is left explicitly `UNRESOLVED` rather than
-guessed — M1 observes, it does not infer. The `ResolutionStatus` vocabulary,
-including `AMBIGUOUS`, and the contracts it will need already exist; see
-[`docs/decisions.md`](docs/decisions.md) D24 and D26.
+[`ROADMAP.md`](ROADMAP.md). The resolution design is recorded in
+[`docs/decisions.md`](docs/decisions.md) D24, D26, D30 and D31.
 
 ---
 

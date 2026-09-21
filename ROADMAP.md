@@ -11,17 +11,19 @@ For the normative specification see [`SPEC.md`](SPEC.md); for design rationale s
 
 | | |
 |---|---|
-| **Current milestone** | M2 — Stage 6 not started; Stages 6–8 next |
-| **Test suite** | 278 tests, all passing (`python tests/run_all.py`, ~15 s) |
+| **Current milestone** | M2 — Stage 6 done; Stages 7–8 next |
+| **Test suite** | 355 tests, all passing (`python tests/run_all.py`, ~15 s) |
 | **Package version** | `0.1.0` |
 | **Languages** | 61 registered · **18 extractable** · 39 parse-only · 4 data/config |
-| **Next** | Stage 6 (symbol and relationship resolution), then Stages 7 and 8 |
+| **Next** | Stage 7 (relationship validation), then Stage 8 |
 
-`demo_repo` (7 files) produces 26 symbols, 42 relationships and 15 bindings;
-every relationship is still `UNRESOLVED` by design, so the spec's §7 dependency
-chain is not yet walkable as real `CALLS` edges. `edgecase_repo` (142 scanned
-files, 18 grammars) produces 5,044 symbols and 5,398 relationships, with 9
-deliberately malformed files isolated rather than fatal.
+`demo_repo` (7 files) produces 26 symbols, 42 relationships and 15 bindings.
+With Stage 6 enabled (`resolve=True`) all 42 edges are `RESOLVED_EXACT` and none
+are left unresolved, so the spec's §7 dependency chain is walkable as real
+`CALLS` edges; without it every reference stays `UNRESOLVED` as M1 emitted it.
+`edgecase_repo` (142 scanned files, 18 grammars) produces 5,044 symbols and 5,398
+relationships, with 9 deliberately malformed files isolated rather than fatal;
+resolution there reports 0 validation problems.
 
 ---
 
@@ -33,7 +35,7 @@ ordering is strict — each milestone depends on the artifacts of the previous o
 | Milestone | Stages | Theme | Status |
 |---|---|---|---|
 | **M1** | 0–5 | Foundations & offline parser | **done** |
-| **M2** | 6–8 | Resolution & canonical model | **in progress** — not started |
+| **M2** | 6–8 | Resolution & canonical model | **in progress** — Stage 6 done |
 | **M3** | 9–12 | Index projections (graph, FTS5, vector) | not started |
 | **M4** | 13–18 | Online query pipeline | not started |
 | **M5** | 19–20 | Agent layer (MCP tools, ReAct) | not started |
@@ -49,46 +51,41 @@ Stage 6 will consume.
 
 ### M2 — in progress
 
-M2 has not started. M1 emits **every** reference as `UNRESOLVED` by design; M2
-turns those into resolved edges, validates them, and gives the result a canonical
-query surface.
+**Stage 6 is done.** It landed in the new sibling package `maat/semantic/`, so
+the syntax tier stays free of meaning. It resolves observed references through a
+precedence ladder (D24), so an edge's `resolution_status` is a statement of
+*which fact* justified it rather than an opaque score, and it reads only the
+language-neutral model — symbols, relationships, bindings — never a grammar, so
+it covers all 18 extractable languages without a per-language branch.
 
-* **Stage 6** — symbol and relationship resolution: import resolver, qualified-name
-  resolver, receiver resolution, call-target resolution, ambiguity handling
+Resolution is opt-in: `index(..., resolve=True)`. Off by default, M1's output
+stays reproducible bit for bit. Section 4.2 governs it — an edge that cannot be
+placed stays explicitly `UNRESOLVED`, and one with several equally plausible
+targets is marked `AMBIGUOUS` with a bounded candidate list, never guessed.
+Measured on `demo_repo`, all 42 edges are `RESOLVED_EXACT` and none remain
+unresolved; `edgecase_repo` resolves with 0 validation problems.
+
+The remaining M2 work turns those edges into a validated, queryable surface:
+
 * **Stage 7** — relationship validation: duplicate and orphan detection, a
   confidence policy, a machine-readable validation report
 * **Stage 8** — canonical semantic model: a CRUD/query interface, version
   management, lookup by ID / qualified name / source-target-type / evidence
 
-Stage 6 lands in a new sibling package `maat/semantic/`, so the syntax tier stays
-free of meaning. It will resolve observed references through a precedence ladder
-(D24), so an edge's `resolution_status` is a statement of *which fact* justified
-it rather than an opaque score, and it will read only the language-neutral
-model — symbols, relationships, bindings — never a grammar, so it can cover all
-18 extractable languages without a per-language branch.
+**Both Stage 6 prerequisites are now closed** (see
+[`docs/decisions.md`](docs/decisions.md)):
 
-Section 4.2 governs it: an edge that cannot be placed stays explicitly
-`UNRESOLVED`, and one with several equally plausible targets is marked `AMBIGUOUS`
-with those candidates listed, never guessed.
-
-**Two prerequisites must be settled before Stage 6 starts.** Both are described
-in [`docs/decisions.md`](docs/decisions.md):
-
-1. **Bindings captured but never persisted** — **closed**. `ir_builder` now emits
+1. **Bindings captured but never persisted** — **closed**. `ir_builder` emits
    them, `SemanticIR` carries a `bindings` collection, and incremental reuse
-   buckets and re-stamps them (D34). Stage 6 has its raw material.
-2. **Version identity needs a pipeline fingerprint** — **not started**. A version
-   ID is currently a pure function of file content, which is correct for M1 but
-   breaks in M2, because resolution changes the model *without changing any
-   file* — so one content hash would map to two different models sharing a version
-   ID (D27).
-
-> Adding the `bindings` collection made the second prerequisite concrete rather
-> than hypothetical: a model written before it existed and a model written after,
-> over identical file content, shared a version ID while differing in content.
-> `load_previous_ir` now treats a payload missing a collection as stale and
-> rebuilds, which removes the silent-gap case — but the version ID itself still
-> collides, so the fingerprint is still needed.
+   buckets and re-stamps them (D34).
+2. **Version identity needs a pipeline fingerprint** — **closed**. `model_version_id`
+   now takes a `pipeline_fingerprint`, and `maat/core/ids.py` carries two
+   constants: `PIPELINE_FINGERPRINT` (`offline.stages=0-5;semantic=absent`) and
+   `PIPELINE_FINGERPRINT_RESOLVED` (`offline.stages=0-5;semantic=stages6-8`). A
+   resolved model and an unresolved one built from identical bytes now get
+   different version IDs (D27), so a run that resolves cannot be served a stale
+   unresolved model by reuse. The consequence: every version ID changes once, so
+   an existing `.maat/` index rebuilds on first use.
 
 ### M3–M6 — not started
 
@@ -139,7 +136,8 @@ Eight acceptance criteria cannot be falsified as written, because they constrain
 mechanism rather than an observable output, or reference a threshold that is never
 fixed. The clearest example is "a usable partial tree" — the implementation made
 it concrete (at least one clean top-level statement), which is why it is testable.
-The others deserve the same treatment before their stage is built. See
+Stage 6's two criteria (§13 AC3 and §13 AC5) were sharpened when it was built; the
+other five deserve the same treatment before their stage is built. See
 [`docs/verification.md`](docs/verification.md).
 
 ---
