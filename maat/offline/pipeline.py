@@ -50,7 +50,17 @@ from ..core.enums import (
     ParseStatus,
     VersionStatus,
 )
-from ..core.serialization import combine_hashes, write_json
+from ..core.serialization import (
+    DEFAULT_INDEX_DIRNAME,
+    EXPECTED_COLLECTIONS,
+    IR_FILENAME,
+    MANIFEST_FILENAME,
+    VALIDATION_FILENAME,
+    combine_hashes,
+    ir_from_payload,
+    ir_to_payload,
+    write_json,
+)
 from ..core.validation import validate_ir
 from . import changes as change_detection
 from . import languages
@@ -59,35 +69,12 @@ from .extractors.query_extractor import QueryExtractor
 from .ir_builder import build_file_ir
 from .parser import TreeSitterParser
 from .snapshot import SnapshotOptions, manifest_payload, scan_repository
-#: Default index directory, relative to the repository root.
-DEFAULT_INDEX_DIRNAME = ".maat"
 
-MANIFEST_FILENAME = "manifest.json"
-IR_FILENAME = "ir.json"
-#: The Stage 7 validation report (section 14 AC5). Written alongside the model so a
-#: reader can see *why* a model was accepted, not just that it was.
-VALIDATION_FILENAME = "validation.json"
-
-#: Every collection the current schema writes into ``ir.json``.
-#:
-#: A payload missing one of these was written by an older schema, and must not be
-#: reused. The collection it lacks would be silently absent from the new model
-#: while the manifest reported every file unchanged -- so the result would look
-#: complete and not be, and ``problems()`` would not catch it because a model that
-#: never had the entities has no dangling references either. Treating such a
-#: payload as absent forces a rebuild, which is the same safe direction a corrupt
-#: payload takes.
-EXPECTED_COLLECTIONS: frozenset[str] = frozenset(
-    {
-        "files",
-        "symbols",
-        "relationships",
-        "bindings",
-        "evidence",
-        "chunks",
-        "diagnostics",
-    }
-)
+#: Artifact names, ``EXPECTED_COLLECTIONS`` and the rehydration entry point all moved
+#: to :mod:`maat.core.serialization` so the canonical store can read and append them
+#: without importing this tier -- see that module for the reasoning. Re-exported here
+#: so existing callers and tests are unaffected by the move.
+_ir_from_payload = ir_from_payload
 
 
 @dataclass
@@ -214,143 +201,6 @@ def load_previous_ir(index_dir: Path) -> SemanticIR | None:
         # previous version's files on disk are left untouched, so the reader sees
         # either the old complete model or the new one.
         return None
-
-
-def _ir_from_payload(payload: dict[str, Any]) -> SemanticIR:
-    """Rehydrate a model from its canonical JSON form.
-
-    Hand-written rather than ``**payload`` because the serialised shape is a
-    contract: it must stay readable and stable, and a silent field rename should
-    break loudly here rather than corrupt a model.
-    """
-    from ..core.enums import (
-        BindingScope,
-        FileKind,
-        RelationshipType,
-        ResolutionStatus,
-        SymbolType,
-    )
-    from ..core.locations import SourceSpan
-
-    def span(raw: Any) -> SourceSpan:
-        return SourceSpan(
-            start_line=raw["start_line"],
-            start_col=raw["start_col"],
-            end_line=raw["end_line"],
-            end_col=raw["end_col"],
-        )
-
-    ir = SemanticIR(model_version=str(payload.get("model_version", "")))
-
-    for raw in payload.get("files", []):
-        ir.files.append(
-            FileRecord(
-                path=raw["path"],
-                language=raw.get("language"),
-                content_hash=raw["content_hash"],
-                size=raw["size"],
-                parse_status=ParseStatus(raw["parse_status"]),
-                parse_error=raw.get("parse_error"),
-                model_version=raw["model_version"],
-                file_kind=FileKind(raw.get("file_kind", "SOURCE")),
-                id=raw.get("id", ""),
-                is_binary=raw.get("is_binary", False),
-                is_generated=raw.get("is_generated", False),
-                line_count=raw.get("line_count", 0),
-                node_count=raw.get("node_count", 0),
-                max_depth=raw.get("max_depth", 0),
-            )
-        )
-
-    for raw in payload.get("symbols", []):
-        ir.symbols.append(
-            Symbol(
-                id=raw["id"],
-                file_id=raw["file_id"],
-                name=raw["name"],
-                qualified_name=raw["qualified_name"],
-                symbol_type=SymbolType(raw["symbol_type"]),
-                signature=raw.get("signature"),
-                location=span(raw["location"]),
-                documentation=raw.get("documentation"),
-                content_hash=raw["content_hash"],
-                model_version=raw["model_version"],
-                language=raw.get("language"),
-            )
-        )
-
-    for raw in payload.get("relationships", []):
-        ir.relationships.append(
-            Relationship(
-                id=raw["id"],
-                source_symbol_id=raw["source_symbol_id"],
-                target_symbol_id=raw["target_symbol_id"],
-                relationship_type=RelationshipType(raw["relationship_type"]),
-                resolution_status=ResolutionStatus(raw["resolution_status"]),
-                confidence=raw["confidence"],
-                source_location=span(raw["source_location"]),
-                model_version=raw["model_version"],
-                target_name=raw.get("target_name"),
-            )
-        )
-
-    # ``.get(..., [])`` rather than indexing: an ``ir.json`` written before
-    # bindings were persisted has no "bindings" key, and it must still load.
-    for raw in payload.get("bindings", []):
-        ir.bindings.append(
-            Binding(
-                id=raw["id"],
-                file_id=raw["file_id"],
-                bound_name=raw["bound_name"],
-                type_name=raw["type_name"],
-                scope=BindingScope(raw["scope"]),
-                location=span(raw["location"]),
-                model_version=raw["model_version"],
-                enclosing_symbol_id=raw.get("enclosing_symbol_id"),
-            )
-        )
-
-    for raw in payload.get("evidence", []):
-        ir.evidence.append(
-            Evidence(
-                id=raw["id"],
-                entity_id=raw["entity_id"],
-                file_id=raw["file_id"],
-                start_line=raw["start_line"],
-                end_line=raw["end_line"],
-                retrieval_source=raw["retrieval_source"],
-                score=raw["score"],
-                model_version=raw["model_version"],
-            )
-        )
-
-    for raw in payload.get("chunks", []):
-        ir.chunks.append(
-            SemanticChunk(
-                id=raw["id"],
-                symbol_id=raw["symbol_id"],
-                text=raw["text"],
-                chunk_type=raw["chunk_type"],
-                embedding_id=raw.get("embedding_id"),
-                token_count=raw["token_count"],
-                model_version=raw["model_version"],
-            )
-        )
-
-    for raw in payload.get("diagnostics", []):
-        ir.diagnostics.append(
-            Diagnostic(
-                severity=DiagnosticSeverity(raw["severity"]),
-                code=raw["code"],
-                message=raw["message"],
-                file_path=raw.get("file_path"),
-                language=raw.get("language"),
-                span=span(raw["span"]) if raw.get("span") else None,
-                recovery_action=raw.get("recovery_action", "none"),
-            )
-        )
-
-    return ir
 
 
 def _group_by_file(ir: SemanticIR) -> dict[str, dict[str, list[Any]]]:
@@ -578,8 +428,16 @@ class OfflinePipeline:
         # invalid or interrupted build leaves the previous version serving.
         if persist and result.is_valid:
             write_json(index_path / MANIFEST_FILENAME, manifest_payload(snapshot))
-            write_json(index_path / IR_FILENAME, ir.to_dict())
+            write_json(index_path / IR_FILENAME, ir_to_payload(ir))
             write_json(index_path / VALIDATION_FILENAME, report.to_dict())
+            # The version log is the canonical store's artifact, so it is written
+            # through the store's helper rather than by duplicating the format here.
+            # Imported inside the method for the same reason resolution is (D30):
+            # the semantic tier is reached across at the point of use, not depended
+            # on at module scope.
+            from ..semantic import append_version
+
+            append_version(index_path, version)
 
         return result
 

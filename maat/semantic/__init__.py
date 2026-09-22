@@ -16,9 +16,19 @@ from .ladder import (
     resolve_qualified_name,
 )
 from .resolver import Resolver, ResolutionReport, resolve_ir
+from .store import (
+    ModelNotPublishedError,
+    ModelStore,
+    PublishedVersionError,
+    append_version,
+)
 
 __all__ = [
     "INSTANCE_RECEIVERS",
+    "ModelNotPublishedError",
+    "ModelStore",
+    "PublishedVersionError",
+    "append_version",
     "ResolutionReport",
     "ResolutionRung",
     "Resolver",

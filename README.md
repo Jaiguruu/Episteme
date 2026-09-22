@@ -171,7 +171,7 @@ isolated: the rest of the repository stays queryable.
 
 ## Verified behaviour
 
-**396 tests, all passing** (`python tests/run_all.py`, ~15 s).
+**440 tests, all passing** (`python tests/run_all.py`, ~15 s).
 
 | Repository | Scanned | Symbols | Relationships | Bindings |
 |---|---:|---:|---:|---:|
@@ -318,11 +318,19 @@ once and turns each string into a finding. What it adds is duplicate-**edge**
 detection, an orphan check on `evidence.entity_id`, cross-entity `model_version`
 consistency, the machine-readable report, and the severity policy (D37).
 
-**Not yet implemented:** the canonical model store (Stage 8), the graph / FTS5 /
-vector projections, retrieval, reasoning, and the MCP tool layer. Those are
-M2–M6 in [`ROADMAP.md`](ROADMAP.md). The resolution design is recorded in
-[`docs/decisions.md`](docs/decisions.md) D24, D26, D30 and D31, and the
-validation severity policy in D37.
+**Stage 8 — the canonical model store — is implemented.** `maat/semantic/store.py`
+holds `ModelStore`, which indexes the model once at open so retrieval by stable ID
+is O(1) and a source/target/type query is O(k) — where `SemanticIR`'s own lookups
+are all linear scans. Version management is an append-only `versions.jsonl`:
+`write()` appends and never rewrites, so a published version's bytes cannot change
+(§19). An index directory now holds four artifacts — `manifest.json`, `ir.json`,
+`validation.json` and `versions.jsonl`.
+
+**M2 is complete.** Not yet implemented: the graph / FTS5 / vector projections,
+retrieval, reasoning, and the MCP tool layer. Those are M3–M6 in
+[`ROADMAP.md`](ROADMAP.md). The resolution design is recorded in
+[`docs/decisions.md`](docs/decisions.md) D24, D26, D30 and D31, the validation
+severity policy in D37, and the store layout in D38.
 
 ---
 

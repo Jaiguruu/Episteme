@@ -84,9 +84,34 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (`model.unresolved_edges`, 23 unresolved); `edgecase_repo` with `resolve=True`
   is valid with two INFO (177 unresolved, 62 ambiguous) and 0 errors. Both
   fixtures produce zero duplicate edges, zero orphans and zero version mismatches
-  — the new checks are guard rails, not active alarms. The suite is now 396 tests
+  — the new checks are guard rails, not active alarms. The suite went to 396 tests
   across 81 classes and 14 files, up from 355 / 71 / 13 — `tests/core/test_validation.py`
   adds 32 tests across 9 classes. Spec §14 AC1–AC6 are now covered (was 0 of 6).
+- **Stage 8 — the canonical semantic model store.** A new `maat/semantic/store.py`
+  (D38) provides the query surface section 15 asks for. `ModelStore` builds every
+  index once at open, so retrieval by stable ID is O(1) and a source/target/type
+  query is O(k) — where `SemanticIR`'s own lookups are all linear scans, which is
+  fine for a model built and discarded and wrong for a canonical store that a
+  projection will query repeatedly. `entity()` dispatches on the ID prefix, so an ID
+  stays self-describing, and `symbol_by_qualified_name` returns `None` when a name is
+  overloaded rather than picking one arbitrarily. Version management arrives as an
+  **append-only `versions.jsonl`**: `write()` appends and never rewrites, which makes
+  immutability a property of the *file format* rather than a rule the code is trusted
+  to follow, and `history()` walks `parent_id` behind a visited set so a corrupt log
+  cannot loop. Under D32 there is no pointer file — the authoritative active version
+  is the one recorded inside `ir.json`. The publish block now writes a **fourth
+  artifact**, `versions.jsonl`, alongside `manifest.json`, `ir.json` and
+  `validation.json`.
+  A prerequisite refactor moved `ir_from_payload`, `ir_to_payload`,
+  `EXPECTED_COLLECTIONS` and the artifact names out of `offline/pipeline.py` and into
+  `core/serialization.py`, so the store can read a model without importing the syntax
+  tier; the old names are re-exported so existing callers are unaffected. **That move
+  also fixed a latent bug:** the previous rehydration never restored
+  `candidate_symbol_ids`, so reloading a model that had ambiguous edges produced 62
+  validation problems on `edgecase_repo` — every ambiguous edge lost the candidates
+  that `Relationship.problems()` requires. The suite is now 440 tests across 89
+  classes and 15 files, up from 396 / 81 / 14. Spec §15 AC1–AC6 are now covered
+  (was 0 of 6).
 
 ### Changed
 

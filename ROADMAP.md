@@ -11,11 +11,11 @@ For the normative specification see [`SPEC.md`](SPEC.md); for design rationale s
 
 | | |
 |---|---|
-| **Current milestone** | M2 — Stages 6–7 done; Stage 8 next |
-| **Test suite** | 396 tests, all passing (`python tests/run_all.py`, ~15 s) |
+| **Current milestone** | M3 — M2 complete (Stages 6–8 done) |
+| **Test suite** | 440 tests, all passing (`python tests/run_all.py`, ~15 s) |
 | **Package version** | `0.1.0` |
 | **Languages** | 61 registered · **18 extractable** · 39 parse-only · 4 data/config |
-| **Next** | Stage 8 (canonical semantic model) |
+| **Next** | Stage 9 (graph projection) |
 
 `demo_repo` (7 files) produces 26 symbols, 42 relationships and 15 bindings.
 With Stage 6 enabled (`resolve=True`) all 42 edges are `RESOLVED_EXACT` and none
@@ -35,7 +35,7 @@ ordering is strict — each milestone depends on the artifacts of the previous o
 | Milestone | Stages | Theme | Status |
 |---|---|---|---|
 | **M1** | 0–5 | Foundations & offline parser | **done** |
-| **M2** | 6–8 | Resolution & canonical model | **in progress** — Stages 6–7 done |
+| **M2** | 6–8 | Resolution & canonical model | **done** |
 | **M3** | 9–12 | Index projections (graph, FTS5, vector) | not started |
 | **M4** | 13–18 | Online query pipeline | not started |
 | **M5** | 19–20 | Agent layer (MCP tools, ReAct) | not started |
@@ -49,7 +49,7 @@ that isolates a broken file instead of aborting the run. Bindings are captured i
 Tier 2 and persisted as the model's seventh collection, which is the raw material
 Stage 6 will consume.
 
-### M2 — in progress
+### M2 — done
 
 **Stages 6 and 7 are done.** Stage 6 landed in the new sibling package
 `maat/semantic/`, so the syntax tier stays free of meaning. It resolves observed
@@ -75,10 +75,16 @@ and a machine-readable report. The severity policy is the whole of it — only a
 structural defect blocks publication; unresolved and ambiguous edges are
 reported as INFO and the model still publishes (D29, D37).
 
-One stage of M2 remains:
-
-* **Stage 8** — canonical semantic model: a CRUD/query interface, version
-  management, lookup by ID / qualified name / source-target-type / evidence
+**Stage 8 is done, and M2 with it.** `maat/semantic/store.py` holds `ModelStore`,
+which builds every index once at open: retrieval by stable ID is O(1) and a
+source/target/type query is O(k), where `SemanticIR`'s own lookups are all linear
+scans. Version management is an append-only `versions.jsonl`, so immutability is a
+property of the *file format* rather than a convention (§19, D38). An index
+directory now holds four artifacts. A prerequisite refactor moved rehydration and
+the artifact names into `maat/core/serialization.py` so the store can read a model
+without importing the syntax tier — and in doing so fixed a latent bug: the old
+rehydration never restored `candidate_symbol_ids`, so reloading a model that had
+ambiguous edges produced 62 validation problems on `edgecase_repo`.
 
 **Both Stage 6 prerequisites are now closed** (see
 [`docs/decisions.md`](docs/decisions.md)):

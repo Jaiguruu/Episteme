@@ -32,7 +32,7 @@ belongs to tells you what kind of test can prove it.
 
 ## 2. Suite shape
 
-**396 tests, 81 classes, 14 files.** `python tests/run_all.py`, ~15 s, stdlib
+**440 tests, 89 classes, 15 files.** `python tests/run_all.py`, ~15 s, stdlib
 `unittest` only.
 
 | File | Tests | Classes | Covers |
@@ -50,6 +50,7 @@ belongs to tells you what kind of test can prove it.
 | `tests/offline/test_pipeline.py` | 71 | 9 | end-to-end, incremental, publication, §30, model loader, resolution, validation |
 | `tests/semantic/test_ladder.py` | 21 | 4 | §13 Stage 6 — the resolution ladder |
 | `tests/semantic/test_resolver.py` | 37 | 12 | §13 Stage 6 — resolution end to end |
+| `tests/semantic/test_store.py` | 44 | 8 | §15 Stage 8 — the canonical model store |
 | `tests/test_docs.py` | 3 | 1 | documentation hygiene guard (D33) |
 
 Counts are measured, not carried over: the per-file figures in this table were wrong
@@ -76,7 +77,7 @@ map). See [`testing.md`](testing.md).
 | §12 Stage 5 | 6 | 6 | `maat/core/` now has its own module — see §2 |
 | §13 Stage 6 | 6 | 6 | `maat/semantic/` — the resolver and the ladder; see §6 |
 | §14 Stage 7 | 6 | 6 | `maat/core/validation.py` — the validator, the report and the severity policy |
-| §15 Stage 8 | 6 | 0 | M2, not started — `ModelStore` |
+| §15 Stage 8 | 6 | 6 | `maat/semantic/store.py` — `ModelStore` and the append-only version log |
 | §16 Stage 9 | 5 | 0 | M3 — preconditions only |
 | §19 Stage 12 | 4 | 1 | AC3 only; M1 publishes atomically but there is no version pointer yet |
 | §30 Stage 22 | 5 | 5 | fully covered |
@@ -85,15 +86,17 @@ map). See [`testing.md`](testing.md).
 **M1's acceptance surface is fully covered.** Every numbered AC belonging to §8,
 §9, §10, §11 and §30 has at least one direct test.
 
-**Overall: 51 of 131 stage-level criteria (39%) are covered** — the remainder
+**Overall: 57 of 131 stage-level criteria (43%) are covered** — the remainder
 belong to stages that are not built. This is a milestone boundary, not a gap.
 
 The gaps that were inside a built stage's own scope have all been closed:
 `maat/core/` now has a test module (§2), the model loader is defensive and
-tested (§5), and Stage 6's six acceptance criteria are covered by
-`tests/semantic/`, and Stage 7's six by `tests/core/test_validation.py`. Spec
-items belonging to stages that do not exist yet — §15 Stage 8 onward — are not
-gaps; their acceptance criteria belong to stages with no code in this tree.
+tested (§5), Stage 6's six acceptance criteria are covered by `tests/semantic/`,
+Stage 7's six by `tests/core/test_validation.py`, and Stage 8's six by
+`tests/semantic/test_store.py`. **M2 is complete**, so every acceptance criterion
+in §13, §14 and §15 is covered. Spec items belonging to stages that do not exist
+yet — §16 Stage 9 onward — are not gaps; their acceptance criteria belong to
+stages with no code in this tree.
 
 ---
 
@@ -219,13 +222,13 @@ behaviour became testable as a result. The other five deserve the same treatment
 ## 7. Running the checks
 
 ```bash
-python tests/run_all.py            # 396 tests, exit 1 on failure
+python tests/run_all.py            # 440 tests, exit 1 on failure
 python tests/run_all.py -v         # verbose
 python tests/run_all.py offline    # substring filter on the test id
 
 python tools/verify_queries.py     # all 18 .scm compile and fire their captures
 python tools/verify_bindings.py    # per-language @binding coverage
-python tools/count_tests.py        # the 396 / 81 / 14 figures quoted in §2
+python tools/count_tests.py        # the 440 / 89 / 15 figures quoted in §2
 ```
 
 CI runs the first two. `verify_queries.py` matters more than it looks: a malformed

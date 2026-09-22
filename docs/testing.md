@@ -10,7 +10,7 @@ How the test suite is organised and how to add to it.
 third-party test dependency.
 
 ```bash
-python tests/run_all.py              # 396 tests, ~15 s
+python tests/run_all.py              # 440 tests, ~15 s
 python tests/run_all.py -v           # verbose
 python tests/run_all.py offline      # only tests whose id contains "offline"
 python tests/run_all.py ir pipeline  # several filters at once
@@ -52,6 +52,7 @@ tests/
   semantic/
     test_ladder.py       21 tests   §13 Stage 6 — the resolution ladder
     test_resolver.py     37 tests   §13 Stage 6 — resolution end to end
+    test_store.py        44 tests   §15 Stage 8 — the canonical model store
   fixtures/
     demo_repo/          7 files, including one deliberately broken
     edgecase_repo/      142 scanned files, 18 grammars, deliberate edge cases
@@ -199,7 +200,7 @@ def test_reused_file_keeps_its_degraded_status(self) -> None:
 ## 6. The baseline
 
 ```text
-396 tests, 81 classes, 14 files
+440 tests, 89 classes, 15 files
 python tests/run_all.py  ->  PASS, ~15 s
 ```
 

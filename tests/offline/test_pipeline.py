@@ -856,11 +856,15 @@ class ValidationIntegrationTests(unittest.TestCase):
             )
         self.assertEqual(payload, result.validation_report.to_dict())
 
-    def test_all_three_artifacts_are_written(self) -> None:
+    def test_all_four_artifacts_are_written(self) -> None:
+        """Stage 8 added the version log to the three artifacts Stage 7 left."""
         with TempRepository(DEMO_REPO) as repo:
             OfflinePipeline().index(repo.root, index_dir=repo.index_dir, persist=True)
             names = sorted(path.name for path in repo.index_dir.iterdir())
-        self.assertEqual(names, ["ir.json", "manifest.json", "validation.json"])
+        self.assertEqual(
+            names,
+            ["ir.json", "manifest.json", "validation.json", "versions.jsonl"],
+        )
 
     def test_the_report_is_deterministic_across_runs(self) -> None:
         again = OfflinePipeline().index(DEMO_REPO, persist=False, resolve=True)

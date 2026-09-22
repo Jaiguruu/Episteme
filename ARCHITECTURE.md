@@ -70,7 +70,7 @@ maat/core/                    language-neutral contracts. No I/O, no parsing.
   ids.py             178      content-addressed stable IDs
   contracts.py       732      FileRecord, Symbol, Relationship, Binding, Evidence,
                               SemanticChunk, ModelVersion, SemanticIR, ...
-  serialization.py   112      canonical JSON, atomic writes, hash combination
+  serialization.py   325      canonical JSON, atomic writes, hashing, rehydration, artifact names
   validation.py      511      Stage 7: validate_ir, ValidationReport, the severity policy (D37)
 
 maat/offline/                 the pipeline
@@ -83,11 +83,12 @@ maat/offline/                 the pipeline
     base.py          316      the fact vocabulary + the Extractor protocol
     query_extractor.py 623    one extractor that serves every language
   ir_builder.py      537      facts → validated Symbol/Relationship/Binding/Evidence/Chunk
-  pipeline.py        670      orchestration, incremental reuse, atomic publication
+  pipeline.py        605      orchestration, incremental reuse, atomic publication
 
-maat/semantic/                the resolution tier (Stage 6). Depends only on maat/core.
+maat/semantic/                the semantic tier (Stages 6–8). Depends only on maat/core.
   ladder.py          199      ResolutionRung (S1–S9), the three policy tables, INSTANCE_RECEIVERS
   resolver.py        622      Resolver, ResolutionReport, resolve_ir; MAX_CANDIDATES = 8
+  store.py           530      ModelStore: indexed lookup, versions.jsonl, immutability guard
 ```
 
 `maat/core/` depends on nothing else in the project. `maat/offline/` depends on
